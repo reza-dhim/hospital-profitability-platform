@@ -1,0 +1,7 @@
+{
+  "extends": "@hpp/config/tsconfig/node-library",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src"]
+}

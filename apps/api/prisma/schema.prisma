@@ -1,0 +1,187 @@
+// Sprint 1 scope: Tenancy + Identity entity groups only, per docs/02_DOMAIN_MODEL.md §1
+// and docs/ARCHITECT_AUDIT.md Sprint 1 ("Postgres schema v1 migration"). All other
+// entity groups (Master Data, Transactional, Upload Pipeline, Calculation, AI,
+// Reporting) are added in the sprint that owns them — see docs/00_DOCUMENTATION_INDEX.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Tenancy (docs/03_MULTI_TENANT.md §1) ---------------------------------
+
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  hospitals Hospital[]
+  users     User[]
+
+  @@map("organizations")
+}
+
+model Hospital {
+  id              String    @id @default(uuid())
+  organizationId  String    @map("organization_id")
+  name            String
+  code            String
+  address         String?
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  branches     Branch[]
+  roles        Role[]
+  users        User[]
+  createdBy    User?        @relation("HospitalCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy    User?        @relation("HospitalUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, code])
+  @@map("hospitals")
+}
+
+model Branch {
+  id              String    @id @default(uuid())
+  hospitalId      String    @map("hospital_id")
+  name            String
+  code            String
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  createdBy User?    @relation("BranchCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("BranchUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@map("branches")
+}
+
+// --- Identity (docs/04_RBAC.md, docs/05_AUTHENTICATION.md) ----------------
+
+enum UserStatus {
+  active
+  suspended
+  invited
+
+  @@map("user_status")
+}
+
+model User {
+  id             String     @id @default(uuid())
+  organizationId String     @map("organization_id")
+  // Single hospital + single role for Sprint 1. The full multi-hospital
+  // membership model (user_hospital_memberships, docs/04_RBAC.md §4) is
+  // Sprint 2 scope, built when RBAC enforcement itself is implemented.
+  hospitalId     String?    @map("hospital_id")
+  roleId         String?    @map("role_id")
+  name           String
+  email          String     @unique
+  passwordHash   String     @map("password_hash")
+  status         UserStatus @default(active)
+
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  hospital      Hospital?      @relation(fields: [hospitalId], references: [id])
+  role          Role?          @relation(fields: [roleId], references: [id])
+  refreshTokens RefreshToken[]
+
+  createdBy User? @relation("UserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User? @relation("UserUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  createdUsers User[] @relation("UserCreatedBy")
+  updatedUsers User[] @relation("UserUpdatedBy")
+
+  hospitalsCreated Hospital[] @relation("HospitalCreatedBy")
+  hospitalsUpdated Hospital[] @relation("HospitalUpdatedBy")
+  branchesCreated  Branch[]   @relation("BranchCreatedBy")
+  branchesUpdated  Branch[]   @relation("BranchUpdatedBy")
+  rolesCreated     Role[]     @relation("RoleCreatedBy")
+  rolesUpdated     Role[]     @relation("RoleUpdatedBy")
+
+  @@map("users")
+}
+
+/// The six default roles (docs/04_RBAC.md §2) are seeded per hospital.
+/// Permission assignment (role_permissions rows) is populated in Sprint 2 —
+/// this sprint only creates the roles themselves with empty permission sets.
+model Role {
+  id          String    @id @default(uuid())
+  hospitalId  String    @map("hospital_id")
+  name        String
+  description String?
+  isDefault   Boolean   @default(false) @map("is_default")
+
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
+  users           User[]
+  rolePermissions RolePermission[]
+  createdBy       User?            @relation("RoleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?            @relation("RoleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, name])
+  @@map("roles")
+}
+
+/// Platform-wide permission catalog, `{module}.{action}` per docs/04_RBAC.md §3.
+/// Populated in Sprint 2 alongside real endpoints; empty in Sprint 1.
+model Permission {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Rotating refresh tokens, docs/05_AUTHENTICATION.md §1, §6. Table exists in
+/// Sprint 1's schema; issuance/rotation logic is implemented in Sprint 2.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("refresh_tokens")
+}

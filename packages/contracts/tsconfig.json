@@ -1,0 +1,8 @@
+{
+  "extends": "@hpp/config/tsconfig/react-library",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"]
+}
