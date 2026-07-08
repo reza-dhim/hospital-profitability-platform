@@ -16,10 +16,10 @@ class EnvironmentVariables {
   REDIS_URL!: string;
 
   @IsString()
-  JWT_ACCESS_SECRET!: string;
+  JWT_ACCESS_PRIVATE_KEY!: string;
 
   @IsString()
-  JWT_REFRESH_SECRET!: string;
+  JWT_ACCESS_PUBLIC_KEY!: string;
 }
 
 /**

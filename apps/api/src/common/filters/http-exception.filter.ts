@@ -26,7 +26,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const traceId = (request.headers["x-trace-id"] as string | undefined) ?? randomUUID();
 
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const code = exception instanceof HttpException ? codeForStatus(status) : "INTERNAL";
+    const code =
+      (exception instanceof HttpException ? extractCustomCode(exception) : undefined) ??
+      (exception instanceof HttpException ? codeForStatus(status) : "INTERNAL");
     const message =
       exception instanceof HttpException
         ? extractMessage(exception)
@@ -40,6 +42,20 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error: { code, message, traceId },
     });
   }
+}
+
+/**
+ * Lets a thrown exception carry a specific code (e.g. `new UnauthorizedException({ code: "AUTH_INVALID_CREDENTIALS", message: "..." })`)
+ * instead of the generic per-status default — used where a bare HTTP status
+ * would be ambiguous (docs/17_ERROR_HANDLING.md §1's `code` is meant to be
+ * "namespaced by concern", not just a restatement of the status).
+ */
+function extractCustomCode(exception: HttpException): string | undefined {
+  const body = exception.getResponse();
+  if (typeof body === "object" && body !== null && "code" in body) {
+    return String((body as { code: unknown }).code);
+  }
+  return undefined;
 }
 
 function extractMessage(exception: HttpException): string {

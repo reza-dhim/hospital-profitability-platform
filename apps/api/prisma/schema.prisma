@@ -91,6 +91,11 @@ model User {
   email          String     @unique
   passwordHash   String     @map("password_hash")
   status         UserStatus @default(active)
+  // Reserved per docs/05_AUTHENTICATION.md §3 — MFA is a fast-follow, not an
+  // MVP blocker, but the login flow needs a branch point to exist from the
+  // start. No TOTP logic is implemented in Sprint 2.1.
+  mfaEnabled     Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret      String?    @map("mfa_secret")
 
   createdByUserId String?   @map("created_by_user_id")
   updatedByUserId String?   @map("updated_by_user_id")
@@ -169,12 +174,12 @@ model RolePermission {
   @@map("role_permissions")
 }
 
-/// Rotating refresh tokens, docs/05_AUTHENTICATION.md §1, §6. Table exists in
-/// Sprint 1's schema; issuance/rotation logic is implemented in Sprint 2.
+/// Rotating refresh tokens, docs/05_AUTHENTICATION.md §1, §6. "Session" in
+/// user-facing terms — implemented in Sprint 2.1.
 model RefreshToken {
   id        String    @id @default(uuid())
   userId    String    @map("user_id")
-  tokenHash String    @map("token_hash")
+  tokenHash String    @unique @map("token_hash")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
   userAgent String?   @map("user_agent")

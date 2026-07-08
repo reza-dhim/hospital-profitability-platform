@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module";
 
 /**
@@ -13,7 +14,12 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api/v1", { exclude: ["health"] });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  app.enableCors();
+  // Required to read the httpOnly refresh-token cookie (docs/05_AUTHENTICATION.md §1).
+  app.use(cookieParser());
+  // credentials:true requires an explicit origin (browsers reject wildcard
+  // origin on credentialed/cookie-bearing requests) — defaults to apps/web's
+  // local dev port.
+  app.enableCors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:3000", credentials: true });
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle("Hospital Profitability Intelligence Platform API")
