@@ -43,6 +43,7 @@ model Hospital {
   branches     Branch[]
   roles        Role[]
   users        User[]
+  memberships  UserHospitalMembership[]
   createdBy    User?        @relation("HospitalCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy    User?        @relation("HospitalUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
@@ -107,6 +108,7 @@ model User {
   hospital      Hospital?      @relation(fields: [hospitalId], references: [id])
   role          Role?          @relation(fields: [roleId], references: [id])
   refreshTokens RefreshToken[]
+  memberships   UserHospitalMembership[] @relation("MembershipUser")
 
   createdBy User? @relation("UserCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy User? @relation("UserUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
@@ -120,6 +122,8 @@ model User {
   branchesUpdated  Branch[]   @relation("BranchUpdatedBy")
   rolesCreated     Role[]     @relation("RoleCreatedBy")
   rolesUpdated     Role[]     @relation("RoleUpdatedBy")
+  membershipsCreated UserHospitalMembership[] @relation("MembershipCreatedBy")
+  membershipsUpdated UserHospitalMembership[] @relation("MembershipUpdatedBy")
 
   @@map("users")
 }
@@ -143,6 +147,7 @@ model Role {
   hospital        Hospital         @relation(fields: [hospitalId], references: [id])
   users           User[]
   rolePermissions RolePermission[]
+  memberships     UserHospitalMembership[]
   createdBy       User?            @relation("RoleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy       User?            @relation("RoleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
@@ -172,6 +177,40 @@ model RolePermission {
 
   @@id([roleId, permissionId])
   @@map("role_permissions")
+}
+
+/// Per-hospital role assignment for a user, docs/04_RBAC.md §4 and
+/// docs/03_MULTI_TENANT.md §4. Additive to `User.hospitalId`/`roleId` (the
+/// Sprint 1 single-hospital simplification, still the source of the JWT's
+/// `active_hospital_id`/`role` claims as of Sprint 2.2) — this table is the
+/// authorization source for accessing a *non-active* hospital (e.g. via the
+/// `X-Hospital-Id` header) and for group-level users who hold more than one
+/// hospital membership. Login/token issuance is not yet membership-aware;
+/// see docs/SPRINT_2_2_REVIEW.md "Known Limitations".
+model UserHospitalMembership {
+  id         String  @id @default(uuid())
+  userId     String  @map("user_id")
+  hospitalId String  @map("hospital_id")
+  roleId     String  @map("role_id")
+  /// Row-level scope for `kepala_unit` (docs/04_RBAC.md §2 footnote) — will FK
+  /// to `cost_centers`/`profit_centers` once Sprint 3 adds those tables; a
+  /// bare id column until then so this table doesn't block on Sprint 3.
+  scopedUnitId String? @map("scoped_unit_id")
+
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  user      User     @relation("MembershipUser", fields: [userId], references: [id])
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  role      Role     @relation(fields: [roleId], references: [id])
+  createdBy User?    @relation("MembershipCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("MembershipUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, hospitalId])
+  @@map("user_hospital_memberships")
 }
 
 /// Rotating refresh tokens, docs/05_AUTHENTICATION.md §1, §6. "Session" in

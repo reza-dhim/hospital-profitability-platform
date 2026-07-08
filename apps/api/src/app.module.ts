@@ -6,6 +6,8 @@ import { HealthModule } from "./health/health.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { AuditInterceptor } from "./common/interceptors/audit.interceptor";
 import { AuthModule } from "./auth/auth.module";
+import { TenancyModule } from "./tenancy/tenancy.module";
+import { RbacModule } from "./rbac/rbac.module";
 import { MasterDataModule } from "./master-data/master-data.module";
 import { UploadModule } from "./upload/upload.module";
 import { AllocationModule } from "./allocation/allocation.module";
@@ -27,6 +29,8 @@ import { AuditModule } from "./audit/audit.module";
     PrismaModule,
     HealthModule,
     AuthModule,
+    TenancyModule,
+    RbacModule,
     MasterDataModule,
     UploadModule,
     AllocationModule,
