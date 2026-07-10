@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
 export class ServiceResponseDto {
   @ApiProperty() id!: string;
@@ -12,4 +13,9 @@ export class ServiceResponseDto {
   currentTariff?: unknown;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
+}
+
+export class PaginatedServiceResponseDto extends PaginatedResponseDto<ServiceResponseDto> {
+  @ApiProperty({ type: [ServiceResponseDto] })
+  override data: ServiceResponseDto[] = [];
 }

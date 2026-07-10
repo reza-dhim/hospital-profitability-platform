@@ -1,4 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
+import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
 export class AllocationRuleResponseDto {
   @ApiProperty() id!: string;
@@ -10,4 +11,9 @@ export class AllocationRuleResponseDto {
   @ApiProperty() effectivePeriod!: string;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
+}
+
+export class PaginatedAllocationRuleResponseDto extends PaginatedResponseDto<AllocationRuleResponseDto> {
+  @ApiProperty({ type: [AllocationRuleResponseDto] })
+  override data: AllocationRuleResponseDto[] = [];
 }

@@ -1,5 +1,15 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
 import { RequirePermissions } from "../../auth/decorators/permissions.decorator";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator";
 import type { JwtPayload } from "../../auth/types/jwt-payload.type";
@@ -10,7 +20,7 @@ import { ListQueryDto } from "../../common/dto/list-query.dto";
 import { DoctorService } from "./doctor.service";
 import { CreateDoctorDto } from "./dto/create-doctor.dto";
 import { UpdateDoctorDto } from "./dto/update-doctor.dto";
-import { DoctorResponseDto } from "./dto/doctor-response.dto";
+import { DoctorResponseDto, PaginatedDoctorResponseDto } from "./dto/doctor-response.dto";
 
 /**
  * The doctor roster itself (code/name/specialty) — gated by `master_data.*`
@@ -29,6 +39,7 @@ export class DoctorController {
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Create a doctor." })
   @ApiOkResponse({ type: DoctorResponseDto })
+  @ApiConflictResponse({ description: "Doctor code already exists." })
   create(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Body() dto: CreateDoctorDto) {
     return this.doctorService.create(requireHospitalId(tenant), dto, user.sub);
   }
@@ -36,7 +47,14 @@ export class DoctorController {
   @Get()
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "List doctors (search/filter/sort/paginate)." })
-  @ApiOkResponse({ type: [DoctorResponseDto] })
+  @ApiOkResponse({ type: PaginatedDoctorResponseDto })
+  @ApiQuery({
+    name: "filter",
+    required: false,
+    style: "deepObject",
+    explode: true,
+    description: 'Exact-match filter, e.g. "filter[status]=active". Filterable fields: specialty, status.',
+  })
   findAll(
     @CurrentTenant() tenant: TenantContext,
     @Query() query: ListQueryDto,
@@ -48,7 +66,9 @@ export class DoctorController {
   @Get(":id")
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "Get a doctor by id." })
+  @ApiParam({ name: "id", description: "Doctor id." })
   @ApiOkResponse({ type: DoctorResponseDto })
+  @ApiNotFoundResponse({ description: "Doctor not found." })
   findOne(@CurrentTenant() tenant: TenantContext, @Param("id") id: string) {
     return this.doctorService.findOne(requireHospitalId(tenant), id);
   }
@@ -56,7 +76,10 @@ export class DoctorController {
   @Patch(":id")
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Update a doctor." })
+  @ApiParam({ name: "id", description: "Doctor id." })
   @ApiOkResponse({ type: DoctorResponseDto })
+  @ApiNotFoundResponse({ description: "Doctor not found." })
+  @ApiConflictResponse({ description: "Doctor code already exists." })
   update(
     @CurrentTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
@@ -70,7 +93,9 @@ export class DoctorController {
   @RequirePermissions("master_data.write")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Soft-delete a doctor." })
+  @ApiParam({ name: "id", description: "Doctor id." })
   @ApiNoContentResponse()
+  @ApiNotFoundResponse({ description: "Doctor not found." })
   async remove(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Param("id") id: string) {
     await this.doctorService.remove(requireHospitalId(tenant), id, user.sub);
   }

@@ -1,5 +1,15 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
 import { RequirePermissions } from "../../auth/decorators/permissions.decorator";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator";
 import type { JwtPayload } from "../../auth/types/jwt-payload.type";
@@ -10,7 +20,7 @@ import { ListQueryDto } from "../../common/dto/list-query.dto";
 import { CostCenterService } from "./cost-center.service";
 import { CreateCostCenterDto } from "./dto/create-cost-center.dto";
 import { UpdateCostCenterDto } from "./dto/update-cost-center.dto";
-import { CostCenterResponseDto } from "./dto/cost-center-response.dto";
+import { CostCenterResponseDto, PaginatedCostCenterResponseDto } from "./dto/cost-center-response.dto";
 
 /**
  * Proof-of-concept consumer of the generic CRUD engine
@@ -27,6 +37,7 @@ export class CostCenterController {
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Create a cost center." })
   @ApiOkResponse({ type: CostCenterResponseDto })
+  @ApiConflictResponse({ description: "Cost center code already exists." })
   create(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Body() dto: CreateCostCenterDto) {
     return this.costCenterService.create(requireHospitalId(tenant), dto, user.sub);
   }
@@ -34,7 +45,14 @@ export class CostCenterController {
   @Get()
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "List cost centers (search/filter/sort/paginate)." })
-  @ApiOkResponse({ type: [CostCenterResponseDto] })
+  @ApiOkResponse({ type: PaginatedCostCenterResponseDto })
+  @ApiQuery({
+    name: "filter",
+    required: false,
+    style: "deepObject",
+    explode: true,
+    description: 'Exact-match filter, e.g. "filter[status]=active". Filterable fields: type, status.',
+  })
   findAll(
     @CurrentTenant() tenant: TenantContext,
     @Query() query: ListQueryDto,
@@ -46,7 +64,9 @@ export class CostCenterController {
   @Get(":id")
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "Get a cost center by id." })
+  @ApiParam({ name: "id", description: "Cost center id." })
   @ApiOkResponse({ type: CostCenterResponseDto })
+  @ApiNotFoundResponse({ description: "Cost center not found." })
   findOne(@CurrentTenant() tenant: TenantContext, @Param("id") id: string) {
     return this.costCenterService.findOne(requireHospitalId(tenant), id);
   }
@@ -54,7 +74,10 @@ export class CostCenterController {
   @Patch(":id")
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Update a cost center." })
+  @ApiParam({ name: "id", description: "Cost center id." })
   @ApiOkResponse({ type: CostCenterResponseDto })
+  @ApiNotFoundResponse({ description: "Cost center not found." })
+  @ApiConflictResponse({ description: "Cost center code already exists." })
   update(
     @CurrentTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
@@ -68,7 +91,9 @@ export class CostCenterController {
   @RequirePermissions("master_data.write")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Soft-delete a cost center." })
+  @ApiParam({ name: "id", description: "Cost center id." })
   @ApiNoContentResponse()
+  @ApiNotFoundResponse({ description: "Cost center not found." })
   async remove(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Param("id") id: string) {
     await this.costCenterService.remove(requireHospitalId(tenant), id, user.sub);
   }

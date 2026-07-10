@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
 export class DriverResponseDto {
   @ApiProperty() id!: string;
@@ -9,4 +10,9 @@ export class DriverResponseDto {
   @ApiPropertyOptional() description?: string | null;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
+}
+
+export class PaginatedDriverResponseDto extends PaginatedResponseDto<DriverResponseDto> {
+  @ApiProperty({ type: [DriverResponseDto] })
+  override data: DriverResponseDto[] = [];
 }

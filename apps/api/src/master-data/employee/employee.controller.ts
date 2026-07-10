@@ -1,5 +1,15 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
 import { RequirePermissions } from "../../auth/decorators/permissions.decorator";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator";
 import type { JwtPayload } from "../../auth/types/jwt-payload.type";
@@ -10,7 +20,7 @@ import { ListQueryDto } from "../../common/dto/list-query.dto";
 import { EmployeeService } from "./employee.service";
 import { CreateEmployeeDto } from "./dto/create-employee.dto";
 import { UpdateEmployeeDto } from "./dto/update-employee.dto";
-import { EmployeeResponseDto } from "./dto/employee-response.dto";
+import { EmployeeResponseDto, PaginatedEmployeeResponseDto } from "./dto/employee-response.dto";
 
 @ApiTags("employees")
 @ApiBearerAuth()
@@ -22,6 +32,7 @@ export class EmployeeController {
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Create an employee." })
   @ApiOkResponse({ type: EmployeeResponseDto })
+  @ApiConflictResponse({ description: "Employee code already exists." })
   create(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Body() dto: CreateEmployeeDto) {
     return this.employeeService.create(requireHospitalId(tenant), dto, user.sub);
   }
@@ -29,7 +40,15 @@ export class EmployeeController {
   @Get()
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "List employees (search/filter/sort/paginate)." })
-  @ApiOkResponse({ type: [EmployeeResponseDto] })
+  @ApiOkResponse({ type: PaginatedEmployeeResponseDto })
+  @ApiQuery({
+    name: "filter",
+    required: false,
+    style: "deepObject",
+    explode: true,
+    description:
+      'Exact-match filter, e.g. "filter[status]=active". Filterable fields: departmentCostCenterId, employmentType, status.',
+  })
   findAll(
     @CurrentTenant() tenant: TenantContext,
     @Query() query: ListQueryDto,
@@ -41,7 +60,9 @@ export class EmployeeController {
   @Get(":id")
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "Get an employee by id." })
+  @ApiParam({ name: "id", description: "Employee id." })
   @ApiOkResponse({ type: EmployeeResponseDto })
+  @ApiNotFoundResponse({ description: "Employee not found." })
   findOne(@CurrentTenant() tenant: TenantContext, @Param("id") id: string) {
     return this.employeeService.findOne(requireHospitalId(tenant), id);
   }
@@ -49,7 +70,10 @@ export class EmployeeController {
   @Patch(":id")
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Update an employee." })
+  @ApiParam({ name: "id", description: "Employee id." })
   @ApiOkResponse({ type: EmployeeResponseDto })
+  @ApiNotFoundResponse({ description: "Employee not found." })
+  @ApiConflictResponse({ description: "Employee code already exists." })
   update(
     @CurrentTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
@@ -63,7 +87,9 @@ export class EmployeeController {
   @RequirePermissions("master_data.write")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Soft-delete an employee." })
+  @ApiParam({ name: "id", description: "Employee id." })
   @ApiNoContentResponse()
+  @ApiNotFoundResponse({ description: "Employee not found." })
   async remove(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Param("id") id: string) {
     await this.employeeService.remove(requireHospitalId(tenant), id, user.sub);
   }

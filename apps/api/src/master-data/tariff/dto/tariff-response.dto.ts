@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { TariffStatus } from "@prisma/client";
+import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
 export class TariffResponseDto {
   @ApiProperty() id!: string;
@@ -13,4 +14,9 @@ export class TariffResponseDto {
   @ApiProperty({ enum: TariffStatus }) status!: TariffStatus;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
+}
+
+export class PaginatedTariffResponseDto extends PaginatedResponseDto<TariffResponseDto> {
+  @ApiProperty({ type: [TariffResponseDto] })
+  override data: TariffResponseDto[] = [];
 }

@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { PaginatedResponseDto } from "../../common/dto/pagination.dto";
 
 export class AuditLogResponseDto {
   @ApiProperty() id!: string;
@@ -11,4 +12,9 @@ export class AuditLogResponseDto {
   @ApiPropertyOptional({ type: "object", additionalProperties: true }) afterJson?: unknown;
   @ApiPropertyOptional() ipAddress?: string | null;
   @ApiProperty() createdAt!: Date;
+}
+
+export class PaginatedAuditLogResponseDto extends PaginatedResponseDto<AuditLogResponseDto> {
+  @ApiProperty({ type: [AuditLogResponseDto] })
+  override data: AuditLogResponseDto[] = [];
 }

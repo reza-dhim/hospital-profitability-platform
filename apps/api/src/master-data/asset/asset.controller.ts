@@ -1,5 +1,15 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from "@nestjs/common";
-import { ApiBearerAuth, ApiNoContentResponse, ApiOkResponse, ApiOperation, ApiTags } from "@nestjs/swagger";
+import {
+  ApiBearerAuth,
+  ApiConflictResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
 import { RequirePermissions } from "../../auth/decorators/permissions.decorator";
 import { CurrentUser } from "../../auth/decorators/current-user.decorator";
 import type { JwtPayload } from "../../auth/types/jwt-payload.type";
@@ -10,7 +20,7 @@ import { ListQueryDto } from "../../common/dto/list-query.dto";
 import { AssetService } from "./asset.service";
 import { CreateAssetDto } from "./dto/create-asset.dto";
 import { UpdateAssetDto } from "./dto/update-asset.dto";
-import { AssetResponseDto } from "./dto/asset-response.dto";
+import { AssetResponseDto, PaginatedAssetResponseDto } from "./dto/asset-response.dto";
 
 @ApiTags("assets")
 @ApiBearerAuth()
@@ -22,6 +32,7 @@ export class AssetController {
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Create an asset." })
   @ApiOkResponse({ type: AssetResponseDto })
+  @ApiConflictResponse({ description: "Asset code already exists." })
   create(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Body() dto: CreateAssetDto) {
     return this.assetService.create(requireHospitalId(tenant), dto, user.sub);
   }
@@ -29,7 +40,14 @@ export class AssetController {
   @Get()
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "List assets (search/filter/sort/paginate)." })
-  @ApiOkResponse({ type: [AssetResponseDto] })
+  @ApiOkResponse({ type: PaginatedAssetResponseDto })
+  @ApiQuery({
+    name: "filter",
+    required: false,
+    style: "deepObject",
+    explode: true,
+    description: 'Exact-match filter, e.g. "filter[status]=active". Filterable fields: category, costCenterId, status.',
+  })
   findAll(
     @CurrentTenant() tenant: TenantContext,
     @Query() query: ListQueryDto,
@@ -41,7 +59,9 @@ export class AssetController {
   @Get(":id")
   @RequirePermissions("master_data.read")
   @ApiOperation({ summary: "Get an asset by id." })
+  @ApiParam({ name: "id", description: "Asset id." })
   @ApiOkResponse({ type: AssetResponseDto })
+  @ApiNotFoundResponse({ description: "Asset not found." })
   findOne(@CurrentTenant() tenant: TenantContext, @Param("id") id: string) {
     return this.assetService.findOne(requireHospitalId(tenant), id);
   }
@@ -49,7 +69,10 @@ export class AssetController {
   @Patch(":id")
   @RequirePermissions("master_data.write")
   @ApiOperation({ summary: "Update an asset." })
+  @ApiParam({ name: "id", description: "Asset id." })
   @ApiOkResponse({ type: AssetResponseDto })
+  @ApiNotFoundResponse({ description: "Asset not found." })
+  @ApiConflictResponse({ description: "Asset code already exists." })
   update(
     @CurrentTenant() tenant: TenantContext,
     @CurrentUser() user: JwtPayload,
@@ -63,7 +86,9 @@ export class AssetController {
   @RequirePermissions("master_data.write")
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: "Soft-delete an asset." })
+  @ApiParam({ name: "id", description: "Asset id." })
   @ApiNoContentResponse()
+  @ApiNotFoundResponse({ description: "Asset not found." })
   async remove(@CurrentTenant() tenant: TenantContext, @CurrentUser() user: JwtPayload, @Param("id") id: string) {
     await this.assetService.remove(requireHospitalId(tenant), id, user.sub);
   }
