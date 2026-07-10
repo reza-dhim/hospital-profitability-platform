@@ -1,0 +1,15 @@
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { MasterDataStatus } from "@prisma/client";
+
+export class EmployeeResponseDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() hospitalId!: string;
+  @ApiProperty() code!: string;
+  @ApiProperty() name!: string;
+  @ApiPropertyOptional() roleTitle?: string | null;
+  @ApiPropertyOptional() departmentCostCenterId?: string | null;
+  @ApiProperty() employmentType!: string;
+  @ApiProperty({ enum: MasterDataStatus }) status!: MasterDataStatus;
+  @ApiProperty() createdAt!: Date;
+  @ApiProperty() updatedAt!: Date;
+}

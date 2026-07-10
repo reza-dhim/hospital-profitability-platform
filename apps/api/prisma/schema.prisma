@@ -1,7 +1,9 @@
 // Sprint 1 scope: Tenancy + Identity entity groups only, per docs/02_DOMAIN_MODEL.md §1
-// and docs/ARCHITECT_AUDIT.md Sprint 1 ("Postgres schema v1 migration"). All other
-// entity groups (Master Data, Transactional, Upload Pipeline, Calculation, AI,
-// Reporting) are added in the sprint that owns them — see docs/00_DOCUMENTATION_INDEX.md.
+// and docs/ARCHITECT_AUDIT.md Sprint 1 ("Postgres schema v1 migration"). Sprint 3 adds
+// the Master Data entity group + hospital_settings (Configuration group) below. All
+// remaining entity groups (Transactional, Upload Pipeline, Calculation, AI, Reporting,
+// Platform/audit_logs) are added in the sprint that owns them — see
+// docs/00_DOCUMENTATION_INDEX.md.
 
 generator client {
   provider = "prisma-client-js"
@@ -39,13 +41,28 @@ model Hospital {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization Organization             @relation(fields: [organizationId], references: [id])
   branches     Branch[]
   roles        Role[]
   users        User[]
   memberships  UserHospitalMembership[]
-  createdBy    User?        @relation("HospitalCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy    User?        @relation("HospitalUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdBy    User?                    @relation("HospitalCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy    User?                    @relation("HospitalUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  // --- Sprint 3 master data (docs/02_DOMAIN_MODEL.md §1) ---
+  costCenters      CostCenter[]
+  profitCenters    ProfitCenter[]
+  drivers          Driver[]
+  allocationRules  AllocationRule[]
+  coaAccounts      CoaAccount[]
+  doctors          Doctor[]
+  services         Service[]
+  employees        Employee[]
+  assets           Asset[]
+  vendors          Vendor[]
+  bmhpItems        BmhpItem[]
+  tariffs          Tariff[]
+  hospitalSettings HospitalSettings?
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -104,9 +121,9 @@ model User {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  organization  Organization   @relation(fields: [organizationId], references: [id])
-  hospital      Hospital?      @relation(fields: [hospitalId], references: [id])
-  role          Role?          @relation(fields: [roleId], references: [id])
+  organization  Organization             @relation(fields: [organizationId], references: [id])
+  hospital      Hospital?                @relation(fields: [hospitalId], references: [id])
+  role          Role?                    @relation(fields: [roleId], references: [id])
   refreshTokens RefreshToken[]
   memberships   UserHospitalMembership[] @relation("MembershipUser")
 
@@ -116,14 +133,45 @@ model User {
   createdUsers User[] @relation("UserCreatedBy")
   updatedUsers User[] @relation("UserUpdatedBy")
 
-  hospitalsCreated Hospital[] @relation("HospitalCreatedBy")
-  hospitalsUpdated Hospital[] @relation("HospitalUpdatedBy")
-  branchesCreated  Branch[]   @relation("BranchCreatedBy")
-  branchesUpdated  Branch[]   @relation("BranchUpdatedBy")
-  rolesCreated     Role[]     @relation("RoleCreatedBy")
-  rolesUpdated     Role[]     @relation("RoleUpdatedBy")
+  hospitalsCreated   Hospital[]               @relation("HospitalCreatedBy")
+  hospitalsUpdated   Hospital[]               @relation("HospitalUpdatedBy")
+  branchesCreated    Branch[]                 @relation("BranchCreatedBy")
+  branchesUpdated    Branch[]                 @relation("BranchUpdatedBy")
+  rolesCreated       Role[]                   @relation("RoleCreatedBy")
+  rolesUpdated       Role[]                   @relation("RoleUpdatedBy")
   membershipsCreated UserHospitalMembership[] @relation("MembershipCreatedBy")
   membershipsUpdated UserHospitalMembership[] @relation("MembershipUpdatedBy")
+
+  // --- Sprint 3 master data ownership back-relations (created_by/updated_by) ---
+  costCentersCreated      CostCenter[]       @relation("CostCenterCreatedBy")
+  costCentersUpdated      CostCenter[]       @relation("CostCenterUpdatedBy")
+  profitCentersCreated    ProfitCenter[]     @relation("ProfitCenterCreatedBy")
+  profitCentersUpdated    ProfitCenter[]     @relation("ProfitCenterUpdatedBy")
+  driversCreated          Driver[]           @relation("DriverCreatedBy")
+  driversUpdated          Driver[]           @relation("DriverUpdatedBy")
+  allocationRulesCreated  AllocationRule[]   @relation("AllocationRuleCreatedBy")
+  allocationRulesUpdated  AllocationRule[]   @relation("AllocationRuleUpdatedBy")
+  coaAccountsCreated      CoaAccount[]       @relation("CoaAccountCreatedBy")
+  coaAccountsUpdated      CoaAccount[]       @relation("CoaAccountUpdatedBy")
+  doctorsCreated          Doctor[]           @relation("DoctorCreatedBy")
+  doctorsUpdated          Doctor[]           @relation("DoctorUpdatedBy")
+  servicesCreated         Service[]          @relation("ServiceCreatedBy")
+  servicesUpdated         Service[]          @relation("ServiceUpdatedBy")
+  employeesCreated        Employee[]         @relation("EmployeeCreatedBy")
+  employeesUpdated        Employee[]         @relation("EmployeeUpdatedBy")
+  assetsCreated           Asset[]            @relation("AssetCreatedBy")
+  assetsUpdated           Asset[]            @relation("AssetUpdatedBy")
+  vendorsCreated          Vendor[]           @relation("VendorCreatedBy")
+  vendorsUpdated          Vendor[]           @relation("VendorUpdatedBy")
+  bmhpItemsCreated        BmhpItem[]         @relation("BmhpItemCreatedBy")
+  bmhpItemsUpdated        BmhpItem[]         @relation("BmhpItemUpdatedBy")
+  tariffsCreated          Tariff[]           @relation("TariffCreatedBy")
+  tariffsUpdated          Tariff[]           @relation("TariffUpdatedBy")
+  tariffsApproved         Tariff[]           @relation("TariffApprovedBy")
+  hospitalSettingsCreated HospitalSettings[] @relation("HospitalSettingsCreatedBy")
+  hospitalSettingsUpdated HospitalSettings[] @relation("HospitalSettingsUpdatedBy")
+
+  auditLogs AuditLog[]
 
   @@map("users")
 }
@@ -132,11 +180,11 @@ model User {
 /// Permission assignment (role_permissions rows) is populated in Sprint 2 —
 /// this sprint only creates the roles themselves with empty permission sets.
 model Role {
-  id          String    @id @default(uuid())
-  hospitalId  String    @map("hospital_id")
+  id          String  @id @default(uuid())
+  hospitalId  String  @map("hospital_id")
   name        String
   description String?
-  isDefault   Boolean   @default(false) @map("is_default")
+  isDefault   Boolean @default(false) @map("is_default")
 
   createdByUserId String?   @map("created_by_user_id")
   updatedByUserId String?   @map("updated_by_user_id")
@@ -144,12 +192,12 @@ model Role {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
+  hospital        Hospital                 @relation(fields: [hospitalId], references: [id])
   users           User[]
   rolePermissions RolePermission[]
   memberships     UserHospitalMembership[]
-  createdBy       User?            @relation("RoleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy       User?            @relation("RoleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdBy       User?                    @relation("RoleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?                    @relation("RoleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, name])
   @@map("roles")
@@ -188,10 +236,10 @@ model RolePermission {
 /// hospital membership. Login/token issuance is not yet membership-aware;
 /// see docs/SPRINT_2_2_REVIEW.md "Known Limitations".
 model UserHospitalMembership {
-  id         String  @id @default(uuid())
-  userId     String  @map("user_id")
-  hospitalId String  @map("hospital_id")
-  roleId     String  @map("role_id")
+  id           String  @id @default(uuid())
+  userId       String  @map("user_id")
+  hospitalId   String  @map("hospital_id")
+  roleId       String  @map("role_id")
   /// Row-level scope for `kepala_unit` (docs/04_RBAC.md §2 footnote) — will FK
   /// to `cost_centers`/`profit_centers` once Sprint 3 adds those tables; a
   /// bare id column until then so this table doesn't block on Sprint 3.
@@ -228,4 +276,408 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id])
 
   @@map("refresh_tokens")
+}
+
+// --- Master Data (docs/02_DOMAIN_MODEL.md §1-2, Sprint 3) -----------------
+//
+// Every model below is hospital-scoped via a direct `hospitalId` column —
+// including `AllocationRule` and `CoaAccount`, which `02_DOMAIN_MODEL.md`'s
+// relationship summary doesn't explicitly list under "hospitals 1─*", and
+// `CoaAccount` which `DATABASE_SCHEMA.md` doesn't give any tenant column at
+// all. A direct column (rather than scoping `AllocationRule` only through its
+// `costCenter` relation, or leaving `CoaAccount` unscoped) is required so the
+// generic CRUD engine (`common/crud`) can apply one uniform
+// `where: { hospitalId }` tenant filter across every entity — the
+// alternative (some entities scoped directly, others only via a join) would
+// break that genericity and, for `CoaAccount`, would leave it failing the
+// tenant-isolation acceptance criterion (`22_ACCEPTANCE_CRITERIA.md` §8).
+//
+// Cross-cutting columns (`deleted_at`, `created_by_user_id`,
+// `updated_by_user_id`, `created_at`, `updated_at`) follow
+// `02_DOMAIN_MODEL.md` §3, applied to every master-data *and configuration*
+// table — `HospitalSettings` (Configuration group) gets the same columns.
+
+enum MasterDataStatus {
+  active
+  inactive
+
+  @@map("master_data_status")
+}
+
+enum TariffStatus {
+  active
+  superseded
+
+  @@map("tariff_status")
+}
+
+enum AllocationMethod {
+  direct
+  step_down
+
+  @@map("allocation_method")
+}
+
+model CostCenter {
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  code            String
+  name            String
+  type            String
+  status          MasterDataStatus @default(active)
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
+  allocationRules AllocationRule[]
+  employees       Employee[]
+  assets          Asset[]
+  createdBy       User?            @relation("CostCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?            @relation("CostCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("cost_centers")
+}
+
+model ProfitCenter {
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  code            String
+  name            String
+  department      String?
+  status          MasterDataStatus @default(active)
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  hospital  Hospital  @relation(fields: [hospitalId], references: [id])
+  services  Service[]
+  createdBy User?     @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?     @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("profit_centers")
+}
+
+model Driver {
+  id              String    @id @default(uuid())
+  hospitalId      String    @map("hospital_id")
+  code            String
+  name            String
+  unit            String
+  description     String?
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
+  allocationRules AllocationRule[]
+  createdBy       User?            @relation("DriverCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy       User?            @relation("DriverUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("drivers")
+}
+
+/// docs/08_COST_ALLOCATION_ENGINE.md §2: links a cost center to the driver
+/// used to spread its pool, `priority` orders step-down processing.
+model AllocationRule {
+  id              String    @id @default(uuid())
+  hospitalId      String    @map("hospital_id")
+  costCenterId    String    @map("cost_center_id")
+  driverId        String    @map("driver_id")
+  method          String
+  priority        Int
+  effectivePeriod String    @map("effective_period")
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  hospital   Hospital   @relation(fields: [hospitalId], references: [id])
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
+  driver     Driver     @relation(fields: [driverId], references: [id])
+  createdBy  User?      @relation("AllocationRuleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  User?      @relation("AllocationRuleUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([costCenterId, driverId, effectivePeriod])
+  @@index([hospitalId])
+  @@map("allocation_rules")
+}
+
+model CoaAccount {
+  id              String    @id @default(uuid())
+  hospitalId      String    @map("hospital_id")
+  code            String
+  name            String
+  category        String
+  createdByUserId String?   @map("created_by_user_id")
+  updatedByUserId String?   @map("updated_by_user_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  createdBy User?    @relation("CoaAccountCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("CoaAccountUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("coa_accounts")
+}
+
+model Doctor {
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  code            String
+  name            String
+  specialty       String?
+  status          MasterDataStatus @default(active)
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  createdBy User?    @relation("DoctorCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("DoctorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("doctors")
+}
+
+/// `currentTariff` denormalizes the active `Tariff` row's value for read
+/// performance (docs/02_DOMAIN_MODEL.md `tariffs` note) — kept in sync by
+/// `TariffService` whenever a new active tariff row is written.
+model Service {
+  id               String    @id @default(uuid())
+  hospitalId       String    @map("hospital_id")
+  profitCenterId   String    @map("profit_center_id")
+  code             String
+  name             String
+  serviceType      String    @map("service_type")
+  standardDuration Int?      @map("standard_duration")
+  currentTariff    Decimal?  @map("current_tariff") @db.Decimal(14, 2)
+  createdByUserId  String?   @map("created_by_user_id")
+  updatedByUserId  String?   @map("updated_by_user_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  hospital     Hospital     @relation(fields: [hospitalId], references: [id])
+  profitCenter ProfitCenter @relation(fields: [profitCenterId], references: [id])
+  tariffs      Tariff[]
+  createdBy    User?        @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy    User?        @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@index([profitCenterId])
+  @@map("services")
+}
+
+model Employee {
+  id                     String           @id @default(uuid())
+  hospitalId             String           @map("hospital_id")
+  code                   String
+  name                   String
+  roleTitle              String?          @map("role_title")
+  departmentCostCenterId String?          @map("department_cost_center_id")
+  employmentType         String           @map("employment_type")
+  status                 MasterDataStatus @default(active)
+  createdByUserId        String?          @map("created_by_user_id")
+  updatedByUserId        String?          @map("updated_by_user_id")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+  deletedAt              DateTime?        @map("deleted_at")
+
+  hospital             Hospital    @relation(fields: [hospitalId], references: [id])
+  departmentCostCenter CostCenter? @relation(fields: [departmentCostCenterId], references: [id])
+  createdBy            User?       @relation("EmployeeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy            User?       @relation("EmployeeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("employees")
+}
+
+model Asset {
+  id                 String           @id @default(uuid())
+  hospitalId         String           @map("hospital_id")
+  code               String
+  name               String
+  category           String
+  costCenterId       String?          @map("cost_center_id")
+  acquisitionCost    Decimal          @map("acquisition_cost") @db.Decimal(14, 2)
+  depreciationMethod String           @map("depreciation_method")
+  usefulLifeMonths   Int              @map("useful_life_months")
+  status             MasterDataStatus @default(active)
+  createdByUserId    String?          @map("created_by_user_id")
+  updatedByUserId    String?          @map("updated_by_user_id")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  deletedAt          DateTime?        @map("deleted_at")
+
+  hospital   Hospital    @relation(fields: [hospitalId], references: [id])
+  costCenter CostCenter? @relation(fields: [costCenterId], references: [id])
+  createdBy  User?       @relation("AssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  User?       @relation("AssetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("assets")
+}
+
+model Vendor {
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  code            String
+  name            String
+  category        String?
+  status          MasterDataStatus @default(active)
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  hospital  Hospital   @relation(fields: [hospitalId], references: [id])
+  bmhpItems BmhpItem[]
+  createdBy User?      @relation("VendorCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?      @relation("VendorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("vendors")
+}
+
+/// Bahan Medis Habis Pakai — consumable medical materials (docs/02_DOMAIN_MODEL.md).
+model BmhpItem {
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  code            String
+  name            String
+  unit            String
+  standardCost    Decimal          @map("standard_cost") @db.Decimal(14, 2)
+  vendorId        String?          @map("vendor_id")
+  status          MasterDataStatus @default(active)
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  vendor    Vendor?  @relation(fields: [vendorId], references: [id])
+  createdBy User?    @relation("BmhpItemCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("BmhpItemUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, code])
+  @@index([hospitalId])
+  @@map("bmhp_items")
+}
+
+/// Append-only tariff history (docs/02_DOMAIN_MODEL.md `tariffs` note) — a new
+/// row is inserted on every tariff change rather than editing in place;
+/// `Service.currentTariff` is the denormalized pointer to the active row.
+model Tariff {
+  id                String       @id @default(uuid())
+  hospitalId        String       @map("hospital_id")
+  serviceId         String       @map("service_id")
+  currentTariff     Decimal      @map("current_tariff") @db.Decimal(14, 2)
+  recommendedTariff Decimal?     @map("recommended_tariff") @db.Decimal(14, 2)
+  effectiveDate     DateTime     @map("effective_date")
+  approvedByUserId  String?      @map("approved_by_user_id")
+  approvedAt        DateTime?    @map("approved_at")
+  status            TariffStatus @default(active)
+  createdByUserId   String?      @map("created_by_user_id")
+  updatedByUserId   String?      @map("updated_by_user_id")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  deletedAt         DateTime?    @map("deleted_at")
+
+  hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  service    Service  @relation(fields: [serviceId], references: [id])
+  approvedBy User?    @relation("TariffApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  createdBy  User?    @relation("TariffCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  User?    @relation("TariffUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([hospitalId])
+  @@index([serviceId])
+  @@map("tariffs")
+}
+
+/// Configuration group (docs/02_DOMAIN_MODEL.md), one row per hospital.
+/// Drives the allocation-method decision (`08_COST_ALLOCATION_ENGINE.md`) and
+/// the default target margin used before any `target_margins` override
+/// exists (deferred — needs `periods`, out of Sprint 3 scope). Defaults per
+/// docs/24_CONFIGURATION.md §1 (`step_down`, 15%, January, `id-ID`). Only the
+/// four Sprint-3-relevant settings from that table are modeled — the rest
+/// (`max_upload_file_size_mb`, `ai_enabled`, `ai_monthly_token_budget`,
+/// `email_notifications_enabled`) belong to Upload/AI/Notification sprints
+/// and are added by whichever sprint owns that feature.
+model HospitalSettings {
+  id                   String           @id @default(uuid())
+  hospitalId           String           @unique @map("hospital_id")
+  allocationMethod     AllocationMethod @default(step_down) @map("allocation_method")
+  defaultTargetMargin  Decimal          @default(15) @map("default_target_margin") @db.Decimal(5, 2)
+  fiscalYearStartMonth Int              @default(1) @map("fiscal_year_start_month")
+  locale               String           @default("id-ID")
+  createdByUserId      String?          @map("created_by_user_id")
+  updatedByUserId      String?          @map("updated_by_user_id")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+  deletedAt            DateTime?        @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  createdBy User?    @relation("HospitalSettingsCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("HospitalSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("hospital_settings")
+}
+
+// --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -
+
+/// Append-only audit trail (docs/23_AUDIT_TRAIL.md §5 — no update/delete path
+/// exists at the application layer). Written by the global `AuditInterceptor`
+/// for every successful mutating (POST/PATCH/PUT/DELETE) request.
+model AuditLog {
+  id         String   @id @default(uuid())
+  /// Denormalized from the acting request's resolved tenant context
+  /// (`TenantGuard`, which runs before this row is written — see
+  /// `AuditInterceptor`). Not in `02_DOMAIN_MODEL.md`'s literal field list,
+  /// but required so `GET /audit-logs` can apply the same hospital-scoped
+  /// tenant isolation every other endpoint does (`22_ACCEPTANCE_CRITERIA.md`
+  /// §8); nullable because `@Public()` routes (login) have no resolved
+  /// hospital context.
+  hospitalId String?  @map("hospital_id")
+  userId     String?  @map("user_id")
+  action     String
+  entity     String
+  entityId   String?  @map("entity_id")
+  beforeJson Json?    @map("before_json")
+  afterJson  Json?    @map("after_json")
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([hospitalId])
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
