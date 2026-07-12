@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
 import { seedDefaultRolesForHospital } from "../src/rbac/rbac-seed";
+import { seedDemoMasterData } from "../src/master-data/master-data-seed";
 
 const prisma = new PrismaClient();
 
@@ -46,7 +47,7 @@ async function main() {
   const superAdminPassword = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "ChangeMe123!Dev";
   const passwordHash = await argon2.hash(superAdminPassword, { type: argon2.argon2id });
 
-  await prisma.user.upsert({
+  const superAdmin = await prisma.user.upsert({
     where: { email: superAdminEmail },
     update: {},
     create: {
@@ -59,6 +60,10 @@ async function main() {
       status: "active",
     },
   });
+
+  // Sprint 3: master-data demo fixture (13 entities + hospital_settings),
+  // Indonesian hospital terminology, for local dev/demo/smoke-test use.
+  await seedDemoMasterData(prisma, hospital.id, superAdmin.id);
 
   // eslint-disable-next-line no-console
   console.log(
