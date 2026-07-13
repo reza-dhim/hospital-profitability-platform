@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { TenantContextService } from "./tenant-context.service";
 import { PaginationQueryDto, paginationMeta } from "../common/dto/pagination.dto";
 import { CreateOrganizationDto } from "./dto/create-organization.dto";
 import { UpdateOrganizationDto } from "./dto/update-organization.dto";
@@ -19,9 +20,16 @@ function notFound(): NotFoundException {
  */
 @Injectable()
 export class OrganizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContextService: TenantContextService
+  ) {}
 
   async create(dto: CreateOrganizationDto): Promise<OrganizationResponseDto> {
+    // The new org's id can never equal the caller's own `current_org_id`
+    // RLS session var — see the `app.org_bootstrap` escape hatch in
+    // prisma/migrations/20260713120000_add_row_level_security (docs/03_MULTI_TENANT.md §3).
+    this.tenantContextService.setOrgBootstrap();
     return this.prisma.organization.create({ data: { name: dto.name } });
   }
 

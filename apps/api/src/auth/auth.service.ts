@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { TenantContextService } from "../tenancy/tenant-context.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 import { PermissionsService } from "./permissions.service";
@@ -37,6 +38,7 @@ function invalidRefreshToken(): UnauthorizedException {
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly tenantContextService: TenantContextService,
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
     private readonly permissionsService: PermissionsService
@@ -46,8 +48,14 @@ export class AuthService {
    * Unknown email, wrong password, and a non-active account all fail the
    * same way — see docs/05_AUTHENTICATION.md plan's "generic invalid
    * credentials" decision (avoids account-enumeration).
+   *
+   * `setAuthBypass()` must run before any DB call: login looks a user up by
+   * email precisely because no tenant is known yet (docs/03_MULTI_TENANT.md
+   * §2's `users`/`refresh_tokens`/`role_permissions` RLS policies allow this
+   * one narrow, transaction-local escape hatch for that reason).
    */
   async login(email: string, password: string, context: RequestContext): Promise<IssuedTokens> {
+    this.tenantContextService.setAuthBypass();
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: { role: true },
@@ -78,6 +86,7 @@ export class AuthService {
    * revoked and the request fails, per docs/05_AUTHENTICATION.md §1.
    */
   async refresh(rawRefreshToken: string, context: RequestContext): Promise<IssuedTokens> {
+    this.tenantContextService.setAuthBypass();
     const tokenHash = this.tokenService.hashRefreshToken(rawRefreshToken);
     const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
 
@@ -124,6 +133,7 @@ export class AuthService {
   /** Idempotent: a missing/already-revoked token is not an error. */
   async logout(rawRefreshToken: string | undefined): Promise<void> {
     if (!rawRefreshToken) return;
+    this.tenantContextService.setAuthBypass();
     const tokenHash = this.tokenService.hashRefreshToken(rawRefreshToken);
     const existing = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     if (existing && !existing.revokedAt) {

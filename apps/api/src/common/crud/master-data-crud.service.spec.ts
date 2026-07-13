@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type { PrismaService } from "../../prisma/prisma.service";
 import type { AuditContextService } from "../../audit/audit-context.service";
+import type { TenantContextService } from "../../tenancy/tenant-context.service";
 import type { ListQueryOptions } from "../query/list-query.util";
 import type { PaginationMetaDto } from "../dto/pagination.dto";
 
@@ -243,8 +244,12 @@ const CASES: EntityCase[] = [
       defaultSort: "effectiveDate",
     },
     // TariffService overrides create() (supersede + Service.currentTariff sync) — covered in tariff.service.spec.ts instead.
+    // The stub TenantContextService is only consulted by that overridden
+    // create() path, never by the inherited findAll/findOne/update/remove
+    // this suite exercises.
     includeInCreateSuite: false,
-    makeInstance: (prisma, audit) => new TariffService(prisma, audit) as unknown as CrudUnderTest,
+    makeInstance: (prisma, audit) =>
+      new TariffService(prisma, audit, {} as unknown as TenantContextService) as unknown as CrudUnderTest,
   },
 ];
 

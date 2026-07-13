@@ -96,6 +96,28 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo test
 
+  test-integration:
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # docs/03_MULTI_TENANT.md §6's mandatory tenant-isolation suite — real
+      # Postgres via Testcontainers (not the `test` job's service
+      # container; each run gets its own throwaway instance), applies every
+      # migration including the RLS one, and asserts policies actually
+      # block cross-tenant access at the DB layer, not just in application
+      # code. ubuntu-latest runners have Docker preinstalled, so no
+      # `services:` block is needed here.
+      - run: pnpm turbo test:integration
+
   build:
     needs: install
     runs-on: ubuntu-latest

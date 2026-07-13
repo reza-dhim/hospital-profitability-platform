@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { tenantSessionSql } from "../../prisma/tenant-session.sql";
 import { AuditContextService } from "../../audit/audit-context.service";
+import { TenantContextService } from "../../tenancy/tenant-context.service";
 import { CrudDelegate, MasterDataCrudService } from "../../common/crud/master-data-crud.service";
 import { CreateTariffDto } from "./dto/create-tariff.dto";
 import { UpdateTariffDto } from "./dto/update-tariff.dto";
@@ -20,7 +22,11 @@ import type { TariffResponseDto } from "./dto/tariff-response.dto";
  */
 @Injectable()
 export class TariffService extends MasterDataCrudService<TariffResponseDto, CreateTariffDto, UpdateTariffDto> {
-  constructor(prisma: PrismaService, auditContextService: AuditContextService) {
+  constructor(
+    prisma: PrismaService,
+    auditContextService: AuditContextService,
+    private readonly tenantContextService: TenantContextService
+  ) {
     super(prisma, auditContextService, prisma.tariff as unknown as CrudDelegate, {
       entity: "tariff",
       notFoundCode: "TARIFF_NOT_FOUND",
@@ -35,34 +41,50 @@ export class TariffService extends MasterDataCrudService<TariffResponseDto, Crea
   }
 
   override async create(hospitalId: string, dto: CreateTariffDto, actorUserId: string): Promise<TariffResponseDto> {
-    const created = await this.prisma.$transaction(async (tx) => {
-      await tx.tariff.updateMany({
-        where: { hospitalId, serviceId: dto.serviceId, status: "active", deletedAt: null },
-        data: { status: "superseded", updatedByUserId: actorUserId },
-      });
+    // The RLS session GUCs (docs/03_MULTI_TENANT.md §2) are normally set
+    // automatically by the tenant-rls Prisma extension, but it can't wrap
+    // calls already running inside an application-managed transaction like
+    // this one (Prisma doesn't support nested transactions) — so this
+    // transaction sets them itself, once, as its first statement, and
+    // `setManagedTransaction(true)` tells the extension to skip its usual
+    // per-operation wrapping for everything else inside it. See
+    // `tenant-rls.extension.ts`'s doc comment for why.
+    this.tenantContextService.setManagedTransaction(true);
+    let created: TariffResponseDto;
+    try {
+      created = (await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw(tenantSessionSql(this.tenantContextService));
 
-      const tariff = await tx.tariff.create({
-        data: {
-          hospitalId,
-          serviceId: dto.serviceId,
-          currentTariff: dto.currentTariff,
-          recommendedTariff: dto.recommendedTariff,
-          effectiveDate: new Date(dto.effectiveDate),
-          approvedByUserId: actorUserId,
-          approvedAt: new Date(),
-          status: "active",
-          createdByUserId: actorUserId,
-          updatedByUserId: actorUserId,
-        },
-      });
+        await tx.tariff.updateMany({
+          where: { hospitalId, serviceId: dto.serviceId, status: "active", deletedAt: null },
+          data: { status: "superseded", updatedByUserId: actorUserId },
+        });
 
-      await tx.service.update({
-        where: { id: dto.serviceId },
-        data: { currentTariff: dto.currentTariff },
-      });
+        const tariff = await tx.tariff.create({
+          data: {
+            hospitalId,
+            serviceId: dto.serviceId,
+            currentTariff: dto.currentTariff,
+            recommendedTariff: dto.recommendedTariff,
+            effectiveDate: new Date(dto.effectiveDate),
+            approvedByUserId: actorUserId,
+            approvedAt: new Date(),
+            status: "active",
+            createdByUserId: actorUserId,
+            updatedByUserId: actorUserId,
+          },
+        });
 
-      return tariff;
-    });
+        await tx.service.update({
+          where: { id: dto.serviceId },
+          data: { currentTariff: dto.currentTariff },
+        });
+
+        return tariff;
+      })) as TariffResponseDto;
+    } finally {
+      this.tenantContextService.setManagedTransaction(false);
+    }
 
     this.auditContextService.record({
       entity: this.options.entity,

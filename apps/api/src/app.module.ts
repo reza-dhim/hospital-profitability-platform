@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import { AppConfigModule } from "./config/app-config.module";
+import { TenantContextModule } from "./tenancy/tenant-context.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthModule } from "./health/health.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
@@ -26,6 +27,7 @@ import { AuditModule } from "./audit/audit.module";
 @Module({
   imports: [
     AppConfigModule,
+    TenantContextModule,
     PrismaModule,
     HealthModule,
     AuthModule,

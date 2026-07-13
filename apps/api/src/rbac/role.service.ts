@@ -1,5 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { tenantSessionSql } from "../prisma/tenant-session.sql";
+import { TenantContextService } from "../tenancy/tenant-context.service";
 import { PaginationQueryDto, paginationMeta } from "../common/dto/pagination.dto";
 import { CreateRoleDto } from "./dto/create-role.dto";
 import { UpdateRoleDto } from "./dto/update-role.dto";
@@ -32,7 +34,10 @@ function toResponse(role: RoleWithPermissions): RoleResponseDto {
 /** Roles are hospital-scoped (docs/04_RBAC.md §1) — every method is passed the caller's resolved hospitalId, never a client-supplied one. */
 @Injectable()
 export class RoleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContextService: TenantContextService
+  ) {}
 
   async create(hospitalId: string, dto: CreateRoleDto, actorUserId: string): Promise<RoleResponseDto> {
     const existing = await this.prisma.role.findUnique({
@@ -152,13 +157,29 @@ export class RoleService {
       });
     }
 
-    await this.prisma.$transaction([
-      this.prisma.rolePermission.deleteMany({ where: { roleId: id } }),
-      this.prisma.rolePermission.createMany({
-        data: permissions.map((permission) => ({ roleId: id, permissionId: permission.id })),
-      }),
-      this.prisma.role.update({ where: { id }, data: { updatedByUserId: actorUserId } }),
-    ]);
+    // The RLS session GUCs (docs/03_MULTI_TENANT.md §2) are normally set
+    // automatically by the tenant-rls Prisma extension, but an array-form
+    // `$transaction` batches operations that are already constructed
+    // (dispatched) against the top-level client before this call runs them —
+    // by the time they're batched, it's too late for the extension to wrap
+    // each one in its own session-setting transaction without breaking the
+    // batch's atomicity. This transaction sets them itself, as the first
+    // statement, and `setManagedTransaction(true)` tells the extension to
+    // skip its usual per-operation wrapping for the other elements of this
+    // same array. See `tenant-rls.extension.ts`'s doc comment for why.
+    this.tenantContextService.setManagedTransaction(true);
+    try {
+      await this.prisma.$transaction([
+        this.prisma.$executeRaw(tenantSessionSql(this.tenantContextService)),
+        this.prisma.rolePermission.deleteMany({ where: { roleId: id } }),
+        this.prisma.rolePermission.createMany({
+          data: permissions.map((permission) => ({ roleId: id, permissionId: permission.id })),
+        }),
+        this.prisma.role.update({ where: { id }, data: { updatedByUserId: actorUserId } }),
+      ]);
+    } finally {
+      this.tenantContextService.setManagedTransaction(false);
+    }
 
     return this.findOne(hospitalId, id);
   }

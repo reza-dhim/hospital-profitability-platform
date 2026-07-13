@@ -1,6 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { TenantContextService } from "./tenant-context.service";
 import { TenantMiddleware } from "./tenant.middleware";
 import { TenantResolver } from "./tenant.resolver";
 import { TenantGuard } from "./tenant.guard";
@@ -17,11 +16,14 @@ import { BranchController } from "./branch.controller";
  * order across the whole app) so tenant resolution happens once the caller's
  * identity is already known. `TenantMiddleware` is applied globally via
  * `configure()` since Nest middleware isn't itself an `APP_*` provider.
+ *
+ * `TenantContextService` itself lives in the standalone `TenantContextModule`
+ * (`@Global()`, imported by `AppModule`), not here — see that module's
+ * doc comment for why.
  */
 @Module({
   controllers: [OrganizationController, HospitalController, BranchController],
   providers: [
-    TenantContextService,
     TenantMiddleware,
     TenantResolver,
     OrganizationService,
@@ -29,7 +31,7 @@ import { BranchController } from "./branch.controller";
     BranchService,
     { provide: APP_GUARD, useClass: TenantGuard },
   ],
-  exports: [TenantContextService, TenantResolver],
+  exports: [TenantResolver],
 })
 export class TenancyModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

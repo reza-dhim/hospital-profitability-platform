@@ -1,6 +1,7 @@
 import { TariffService } from "./tariff.service";
 import type { PrismaService } from "../../prisma/prisma.service";
 import type { AuditContextService } from "../../audit/audit-context.service";
+import type { TenantContextService } from "../../tenancy/tenant-context.service";
 
 /**
  * `TariffService.create()` overrides the generic engine entirely (supersede
@@ -12,6 +13,7 @@ import type { AuditContextService } from "../../audit/audit-context.service";
 
 function makeDeps() {
   const tx = {
+    $executeRaw: jest.fn(),
     tariff: { updateMany: jest.fn(), create: jest.fn() },
     service: { update: jest.fn() },
   };
@@ -19,7 +21,13 @@ function makeDeps() {
     $transaction: jest.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
   } as unknown as PrismaService;
   const auditContextService = { record: jest.fn() } as unknown as AuditContextService;
-  return { prisma, tx, auditContextService };
+  const tenantContextService = {
+    get: jest.fn().mockReturnValue({ organizationId: "org-1", hospitalId: "hospital-1", userId: "actor-1" }),
+    isAuthBypass: jest.fn().mockReturnValue(false),
+    isOrgBootstrap: jest.fn().mockReturnValue(false),
+    setManagedTransaction: jest.fn(),
+  } as unknown as TenantContextService;
+  return { prisma, tx, auditContextService, tenantContextService };
 }
 
 const dto = {
@@ -31,7 +39,7 @@ const dto = {
 
 describe("TariffService.create", () => {
   it("supersedes the previously active tariff, creates the new active row, and syncs Service.currentTariff", async () => {
-    const { prisma, tx, auditContextService } = makeDeps();
+    const { prisma, tx, auditContextService, tenantContextService } = makeDeps();
     tx.tariff.updateMany.mockResolvedValue({ count: 1 });
     const created = {
       id: "tariff-2",
@@ -42,7 +50,7 @@ describe("TariffService.create", () => {
     };
     tx.tariff.create.mockResolvedValue(created);
 
-    const service = new TariffService(prisma, auditContextService);
+    const service = new TariffService(prisma, auditContextService, tenantContextService);
     const result = await service.create("hospital-1", dto, "actor-1");
 
     expect(tx.tariff.updateMany).toHaveBeenCalledWith({
@@ -78,12 +86,12 @@ describe("TariffService.create", () => {
   });
 
   it("does not error when there is no previously active tariff to supersede (first tariff for a service)", async () => {
-    const { prisma, tx, auditContextService } = makeDeps();
+    const { prisma, tx, auditContextService, tenantContextService } = makeDeps();
     tx.tariff.updateMany.mockResolvedValue({ count: 0 });
     const created = { id: "tariff-1", hospitalId: "hospital-1", serviceId: "service-1", currentTariff: 175_000, status: "active" };
     tx.tariff.create.mockResolvedValue(created);
 
-    const service = new TariffService(prisma, auditContextService);
+    const service = new TariffService(prisma, auditContextService, tenantContextService);
     await expect(service.create("hospital-1", dto, "actor-1")).resolves.toBe(created);
   });
 });
