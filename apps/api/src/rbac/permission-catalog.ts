@@ -63,7 +63,8 @@ export const PERMISSION_CATALOG: PermissionDefinition[] = [
   { code: "audit.read", name: "View audit trail", module: "audit" },
 
   { code: "period_closing.read", name: "View period status", module: "period_closing" },
-  { code: "period_closing.write", name: "Close/reopen periods", module: "period_closing" },
+  { code: "period_closing.write", name: "Generate, open, lock, and close periods", module: "period_closing" },
+  { code: "period_closing.reopen", name: "Reopen a locked or closed period", module: "period_closing" },
 ];
 
 export const PERMISSION_CODES = PERMISSION_CATALOG.map((permission) => permission.code);

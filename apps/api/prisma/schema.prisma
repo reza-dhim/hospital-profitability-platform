@@ -63,6 +63,7 @@ model Hospital {
   bmhpItems        BmhpItem[]
   tariffs          Tariff[]
   hospitalSettings HospitalSettings?
+  periods          Period[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -170,6 +171,8 @@ model User {
   tariffsApproved         Tariff[]           @relation("TariffApprovedBy")
   hospitalSettingsCreated HospitalSettings[] @relation("HospitalSettingsCreatedBy")
   hospitalSettingsUpdated HospitalSettings[] @relation("HospitalSettingsUpdatedBy")
+  periodsCreated          Period[]           @relation("PeriodCreatedBy")
+  periodsUpdated          Period[]           @relation("PeriodUpdatedBy")
 
   auditLogs AuditLog[]
 
@@ -316,6 +319,19 @@ enum AllocationMethod {
   step_down
 
   @@map("allocation_method")
+}
+
+/// Period lifecycle, docs/25_PERIOD_CLOSING.md §1: draft -> open -> locked ->
+/// closed, with a reopen action (locked|closed -> open) gated separately
+/// (`period_closing.reopen`, System Admin only) from generate/open/lock/close
+/// (`period_closing.write`, System Admin and CFO/Finance Director).
+enum PeriodStatus {
+  draft
+  open
+  locked
+  closed
+
+  @@map("period_status")
 }
 
 model CostCenter {
@@ -647,6 +663,36 @@ model HospitalSettings {
   updatedBy User?    @relation("HospitalSettingsUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@map("hospital_settings")
+}
+
+/// Fiscal period master (docs/02_DOMAIN_MODEL.md `periods`,
+/// docs/25_PERIOD_CLOSING.md). Every transactional/calculation table and the
+/// Upload Pipeline (Sprint 4) reference `period_id` rather than a free
+/// string. `label` is the natural key within a hospital (e.g. "2026-06") and
+/// doubles as the overlap guard for `generate()` (`@@unique`).
+model Period {
+  id              String       @id @default(uuid())
+  hospitalId      String       @map("hospital_id")
+  label           String
+  startDate       DateTime     @map("start_date")
+  endDate         DateTime     @map("end_date")
+  status          PeriodStatus @default(draft)
+  lockedAt        DateTime?    @map("locked_at")
+  closedAt        DateTime?    @map("closed_at")
+  reopenedAt      DateTime?    @map("reopened_at")
+  createdByUserId String?      @map("created_by_user_id")
+  updatedByUserId String?      @map("updated_by_user_id")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  deletedAt       DateTime?    @map("deleted_at")
+
+  hospital  Hospital @relation(fields: [hospitalId], references: [id])
+  createdBy User?    @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy User?    @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([hospitalId, label])
+  @@index([hospitalId, status])
+  @@map("periods")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -

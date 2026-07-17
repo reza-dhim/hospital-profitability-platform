@@ -22,7 +22,8 @@ RBAC is **permission-based**, not role-hardcoded: `roles` are named bundles of `
 | Reports | Read/Export | Read/Export/Schedule | Read/Export/Schedule | Read/Export (own unit) | Read/Export | Read/Export/Schedule |
 | RBAC / User Management | — | — | — | — | — | Read/Write |
 | Audit Trail | Read | Read | Read (own actions) | — | — | Read |
-| Period Closing / Reopen | — | Read | — | — | — | Read/Write |
+| Period Closing (generate/open/lock/close) | — | Read/Write | — | — | — | Read/Write |
+| Period Reopen | — | — | — | — | — | Write |
 
 "Own unit" = row-level filter to the `cost_center`/`profit_center` the `Kepala Unit` user is assigned to via `user_hospital_memberships.scoped_unit_id` (nullable — null means unrestricted, only valid for roles other than Kepala Unit).
 

@@ -10,6 +10,7 @@ import { AuthModule } from "./auth/auth.module";
 import { TenancyModule } from "./tenancy/tenancy.module";
 import { RbacModule } from "./rbac/rbac.module";
 import { MasterDataModule } from "./master-data/master-data.module";
+import { PeriodModule } from "./period/period.module";
 import { UploadModule } from "./upload/upload.module";
 import { AllocationModule } from "./allocation/allocation.module";
 import { ProfitabilityModule } from "./profitability/profitability.module";
@@ -34,6 +35,7 @@ import { AuditModule } from "./audit/audit.module";
     TenancyModule,
     RbacModule,
     MasterDataModule,
+    PeriodModule,
     UploadModule,
     AllocationModule,
     ProfitabilityModule,

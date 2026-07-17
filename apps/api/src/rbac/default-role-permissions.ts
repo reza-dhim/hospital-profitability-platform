@@ -61,6 +61,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<DefaultRoleName, string[]> = {
     "reports.schedule",
     "audit.read",
     "period_closing.read",
+    "period_closing.write",
   ],
   tim_costing: [
     "organization.read",
@@ -133,5 +134,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<DefaultRoleName, string[]> = {
     "audit.read",
     "period_closing.read",
     "period_closing.write",
+    "period_closing.reopen",
   ],
 };
