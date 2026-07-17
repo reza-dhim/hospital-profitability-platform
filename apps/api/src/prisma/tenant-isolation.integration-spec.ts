@@ -260,6 +260,42 @@ describe("Tenant isolation (RLS)", () => {
     )) as { id: string }[];
     expect(rowsAsA.map((r) => r.id)).toContain((inserted as { id: string }).id);
   });
+
+  it("scopes a null-hospital bootstrap audit row (POST /organizations, /hospitals) to its own organization via the acting user's user_id", async () => {
+    const tenantA = await seedHospital();
+    const tenantB = await seedHospital();
+
+    // Simulates the audit row AuditInterceptor writes for an authenticated
+    // caller with no active hospital yet (e.g. bootstrapping their very
+    // first hospital under a brand-new organization) — hospital_id is
+    // null, but user_id is the real, authenticated actor.
+    const bootstrapRow = (await runAs(tenantA.organization.id, null, () =>
+      appPrisma.auditLog.create({
+        data: {
+          hospitalId: null,
+          userId: tenantA.user.id,
+          action: "hospitals.create",
+          entity: "hospitals",
+          entityId: tenantA.hospital.id,
+        },
+      })
+    )) as { id: string };
+    expect(bootstrapRow.id).toBeTruthy();
+
+    const rowsAsOwnOrg = (await runAs(tenantA.organization.id, tenantA.hospital.id, () =>
+      appPrisma.auditLog.findMany({ where: { action: "hospitals.create" } })
+    )) as { id: string }[];
+    expect(rowsAsOwnOrg.map((r) => r.id)).toContain(bootstrapRow.id);
+
+    // The fix under test: a different organization must NOT see it, even
+    // though hospital_id is null on both sides — this previously leaked
+    // (Option C narrows the blanket `hospital_id IS NULL` SELECT allowance
+    // to a join against the row's own user_id / organization_id).
+    const rowsAsOtherOrg = (await runAs(tenantB.organization.id, tenantB.hospital.id, () =>
+      appPrisma.auditLog.findMany({ where: { action: "hospitals.create" } })
+    )) as { id: string }[];
+    expect(rowsAsOtherOrg.map((r) => r.id)).not.toContain(bootstrapRow.id);
+  });
 });
 
 function buildAppClient(url: string, tenantContextService: TenantContextService) {
