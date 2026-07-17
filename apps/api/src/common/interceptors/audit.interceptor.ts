@@ -11,17 +11,29 @@ const MUTATING_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
 /**
  * Global `AuditInterceptor` per docs/23_AUDIT_TRAIL.md §3: writes one
  * `audit_logs` row per successful mutating (POST/PATCH/PUT/DELETE) request.
- * Never runs on a failed request (errors pass through `tap`'s `next`-only
- * handler untouched — no `error` callback is registered).
+ * Failed requests are persisted too, but only when a record was explicitly
+ * made (see below) — otherwise they pass through untouched.
  *
- * `entity`/`action`/`entityId`/`before`/`after` come from whatever the
- * generic CRUD engine recorded via `AuditContextService` during the request
- * (the richest source — a real before/after diff); when nothing was
- * recorded (e.g. an endpoint that doesn't go through that engine yet, such
- * as auth login or role/permission management), the interceptor falls back
- * to inferring `entity`/`action` from the route and `entityId` from the
- * route param or response body, so coverage stays blanket rather than
- * opt-in per controller.
+ * `entity`/`action`/`entityId`/`userId`/`after` come from whatever the
+ * generic CRUD engine (or a service calling `AuditContextService.record()`
+ * directly, e.g. `AuthService`) recorded during the request (the richest
+ * source — a real before/after diff, or an explicit actor for a `@Public()`
+ * route). Once *any* record exists, it is trusted completely — `after` is
+ * NOT topped up from `responseBody` even if the service left it unset,
+ * because for some routes (`/auth/login`, `/auth/refresh`) `responseBody`
+ * contains the access token, and silently falling back to it would leak the
+ * token into `after_json`. Only when nothing was recorded at all (an
+ * endpoint that doesn't go through the CRUD engine or call `record()`) does
+ * the interceptor fall back to inferring `entity`/`action` from the route
+ * and `entityId`/`after` from the response body, so coverage stays blanket
+ * rather than opt-in per controller.
+ *
+ * Failed requests are normally not audited at all (docs/23_AUDIT_TRAIL.md
+ * §3) — but if a service explicitly called `record()` before throwing (the
+ * auth module does this for login failures, per §3's "authentication
+ * failures... logged by the auth module directly" carve-out), that record
+ * is persisted on the error path too. A route that never calls `record()`
+ * keeps today's silent-on-failure behavior unchanged.
  *
  * `next.handle()` returns a cold Observable — nothing actually runs until it
  * is *subscribed*, not when it's called. So the `AsyncLocalStorage` store
@@ -58,7 +70,17 @@ export class AuditInterceptor implements NestInterceptor {
             });
             subscriber.next(value);
           },
-          error: (error) => subscriber.error(error),
+          error: (error) => {
+            if (this.auditContextService.get()) {
+              this.persist(request, undefined).catch((persistError) => {
+                this.logger.error(
+                  "Failed to write audit log entry for a failed request",
+                  persistError instanceof Error ? persistError.stack : persistError
+                );
+              });
+            }
+            subscriber.error(error);
+          },
           complete: () => subscriber.complete(),
         });
       });
@@ -71,13 +93,19 @@ export class AuditInterceptor implements NestInterceptor {
     const entity = record?.entity ?? this.inferEntity(request);
     const action = record?.action ?? `${entity}.${actionForMethod(request.method)}`;
     const entityId = record?.entityId ?? (request.params?.id as string | undefined) ?? extractId(responseBody) ?? null;
+    const userId = record?.userId !== undefined ? record.userId : (request.user?.sub ?? null);
     const ipAddress = request.ip ?? request.socket?.remoteAddress ?? null;
     const hospitalId = (request as TenantScopedRequest).tenantContext?.hospitalId ?? null;
+    // Once a record exists, trust it completely — do NOT top up `after` from
+    // `responseBody` (see class doc comment: `responseBody` can contain
+    // sensitive data such as an access token that a record-less route never
+    // has, e.g. auth login/refresh).
+    const afterJson = record ? (record.after ?? null) : (responseBody ?? null);
 
     await this.prisma.auditLog.create({
       data: {
         hospitalId,
-        userId: request.user?.sub ?? null,
+        userId,
         action,
         entity,
         entityId,
@@ -87,7 +115,7 @@ export class AuditInterceptor implements NestInterceptor {
         // Json column, so the distinction only matters for required Json
         // fields, which these aren't.
         beforeJson: (record?.before ?? null) as never,
-        afterJson: (record?.after ?? responseBody ?? null) as never,
+        afterJson: afterJson as never,
         ipAddress,
       },
     });

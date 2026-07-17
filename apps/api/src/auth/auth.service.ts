@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { TenantContextService } from "../tenancy/tenant-context.service";
+import { AuditContextService } from "../audit/audit-context.service";
 import { PasswordService } from "./password.service";
 import { TokenService } from "./token.service";
 import { PermissionsService } from "./permissions.service";
@@ -41,7 +42,8 @@ export class AuthService {
     private readonly tenantContextService: TenantContextService,
     private readonly passwordService: PasswordService,
     private readonly tokenService: TokenService,
-    private readonly permissionsService: PermissionsService
+    private readonly permissionsService: PermissionsService,
+    private readonly auditContextService: AuditContextService
   ) {}
 
   /**
@@ -62,15 +64,17 @@ export class AuthService {
     });
 
     if (!user || user.deletedAt || user.status !== "active") {
+      this.recordLoginFailure(user?.id ?? null, email);
       throw invalidCredentials();
     }
 
     const passwordValid = await this.passwordService.verify(user.passwordHash, password);
     if (!passwordValid) {
+      this.recordLoginFailure(user.id, email);
       throw invalidCredentials();
     }
 
-    return this.issueTokens(
+    const tokens = await this.issueTokens(
       user.id,
       user.organizationId,
       user.hospitalId,
@@ -78,6 +82,36 @@ export class AuthService {
       user.role?.name ?? null,
       context
     );
+
+    this.auditContextService.record({
+      entity: "auth",
+      action: "auth.login.success",
+      entityId: user.id,
+      userId: user.id,
+      after: null,
+    });
+
+    return tokens;
+  }
+
+  /**
+   * docs/23_AUDIT_TRAIL.md §3's "authentication failures... logged by the
+   * auth module directly" carve-out. `userId` is the matched account's id
+   * when the email matched but the password/status check failed (valuable
+   * for detecting brute-force against one account), or `null` when the
+   * email matched no user at all — never a reason to reveal which case it
+   * was in the API response (`invalidCredentials()` stays generic either
+   * way). `email` is the attempted login identifier, not a password or
+   * token, and is the whole point of a security-monitoring log entry.
+   */
+  private recordLoginFailure(userId: string | null, email: string): void {
+    this.auditContextService.record({
+      entity: "auth",
+      action: "auth.login.failure",
+      entityId: userId,
+      userId,
+      after: { email },
+    });
   }
 
   /**
@@ -120,7 +154,7 @@ export class AuthService {
       data: { revokedAt: new Date() },
     });
 
-    return this.issueTokens(
+    const tokens = await this.issueTokens(
       user.id,
       user.organizationId,
       user.hospitalId,
@@ -128,9 +162,19 @@ export class AuthService {
       user.role?.name ?? null,
       context
     );
+
+    this.auditContextService.record({
+      entity: "auth",
+      action: "auth.refresh",
+      entityId: user.id,
+      userId: user.id,
+      after: null,
+    });
+
+    return tokens;
   }
 
-  /** Idempotent: a missing/already-revoked token is not an error. */
+  /** Idempotent: a missing/already-revoked token is not an error, and not audit-logged (nothing happened). */
   async logout(rawRefreshToken: string | undefined): Promise<void> {
     if (!rawRefreshToken) return;
     this.tenantContextService.setAuthBypass();
@@ -140,6 +184,13 @@ export class AuthService {
       await this.prisma.refreshToken.update({
         where: { id: existing.id },
         data: { revokedAt: new Date() },
+      });
+      this.auditContextService.record({
+        entity: "auth",
+        action: "auth.logout",
+        entityId: existing.userId,
+        userId: existing.userId,
+        after: null,
       });
     }
   }
