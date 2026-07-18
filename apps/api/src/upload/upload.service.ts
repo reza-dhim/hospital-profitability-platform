@@ -12,16 +12,21 @@ import { PrismaService } from "../prisma/prisma.service";
 import { StorageService } from "../storage/storage.service";
 import { UploadQueueService } from "../queue/upload-queue.service";
 import { PeriodService } from "../period/period.service";
-import { paginationMeta, PaginationMetaDto } from "../common/dto/pagination.dto";
+import { paginationMeta, PaginationMetaDto, PaginationQueryDto } from "../common/dto/pagination.dto";
 import { SUPPORTED_UPLOAD_TYPES } from "./upload.constants";
 import { VIRUS_SCANNER, VirusScanner } from "./virus-scanner";
 import { isValidXlsx } from "./xlsx.util";
 import { CreateUploadDto } from "./dto/create-upload.dto";
 import { ListUploadsDto } from "./dto/list-uploads.dto";
 import type { UploadResponseDto } from "./dto/upload-response.dto";
+import type { ValidationResultResponseDto } from "./dto/validation-result.dto";
 
-/** Never selects `fileUrl` — it's an internal S3 object key, not something any API response exposes. */
-const UPLOAD_BATCH_SELECT = {
+/**
+ * Never selects `fileUrl` — it's an internal S3 object key, not something
+ * any API response exposes. Exported for reuse by `ConfirmService`, which
+ * returns the same `UploadResponseDto` shape after confirm/rollback.
+ */
+export const UPLOAD_BATCH_SELECT = {
   id: true,
   hospitalId: true,
   type: true,
@@ -36,7 +41,7 @@ const UPLOAD_BATCH_SELECT = {
   rolledBackAt: true,
 } satisfies Prisma.UploadBatchSelect;
 
-function notFound(): NotFoundException {
+export function uploadNotFound(): NotFoundException {
   return new NotFoundException({ code: "UPLOAD_NOT_FOUND", message: "Upload batch not found." });
 }
 
@@ -176,7 +181,52 @@ export class UploadService {
       where: { id, hospitalId },
       select: UPLOAD_BATCH_SELECT,
     });
-    if (!batch) throw notFound();
+    if (!batch) throw uploadNotFound();
     return batch;
+  }
+
+  /** docs/07_VALIDATION_ENGINE.md §4's exact contract — paginated `errors` (200/page default via `query.limit`). */
+  async getValidationResult(
+    hospitalId: string,
+    id: string,
+    query: PaginationQueryDto
+  ): Promise<ValidationResultResponseDto> {
+    const batch = await this.findOne(hospitalId, id);
+
+    const [totalRows, errorRows, total, errors, warningRowNumbers] = await Promise.all([
+      this.prisma.uploadRowStaging.count({ where: { uploadBatchId: id } }),
+      this.prisma.uploadRowStaging.count({ where: { uploadBatchId: id, status: "invalid" } }),
+      this.prisma.validationError.count({ where: { uploadBatchId: id } }),
+      this.prisma.validationError.findMany({
+        where: { uploadBatchId: id },
+        orderBy: [{ rowNumber: "asc" }, { createdAt: "asc" }],
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.prisma.validationError.findMany({
+        where: { uploadBatchId: id, severity: "warning" },
+        select: { rowNumber: true },
+        distinct: ["rowNumber"],
+      }),
+    ]);
+
+    return {
+      uploadBatchId: id,
+      status: batch.status,
+      summary: {
+        totalRows,
+        validRows: totalRows - errorRows,
+        errorRows,
+        warningRows: warningRowNumbers.length,
+      },
+      errors: errors.map((error) => ({
+        rowNumber: error.rowNumber,
+        column: error.columnName,
+        code: error.errorCode,
+        severity: error.severity,
+        message: error.message,
+      })),
+      meta: paginationMeta(query.page, query.limit, total),
+    };
   }
 }

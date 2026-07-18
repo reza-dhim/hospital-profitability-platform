@@ -6,6 +6,7 @@ import { UploadService } from "./upload.service";
 import { TemplateService } from "./template.service";
 import { ParseService } from "./parse.service";
 import { ValidateService } from "./validate.service";
+import { ConfirmService } from "./confirm.service";
 import { UploadPipelineProcessor } from "./upload-pipeline.processor";
 import { VIRUS_SCANNER, StubVirusScanner } from "./virus-scanner";
 
@@ -26,6 +27,7 @@ import { VIRUS_SCANNER, StubVirusScanner } from "./virus-scanner";
     TemplateService,
     ParseService,
     ValidateService,
+    ConfirmService,
     UploadPipelineProcessor,
     { provide: VIRUS_SCANNER, useClass: StubVirusScanner },
   ],

@@ -31,6 +31,8 @@ function makeDeps() {
       count: jest.fn(),
       findFirst: jest.fn(),
     },
+    uploadRowStaging: { count: jest.fn() },
+    validationError: { count: jest.fn(), findMany: jest.fn() },
   } as unknown as PrismaService;
 
   const storageService = {
@@ -200,5 +202,44 @@ describe("UploadService.findAll", () => {
       expect.objectContaining({ where: { hospitalId: "hospital-1", type: "cost", status: "staged" } })
     );
     expect(result.meta).toEqual({ page: 1, limit: 20, total: 1 });
+  });
+});
+
+describe("UploadService.getValidationResult", () => {
+  it("computes summary counts and maps errors to the documented contract shape", async () => {
+    const { prisma, storageService, uploadQueueService, periodService, virusScanner } = makeDeps();
+    (prisma.uploadBatch.findFirst as jest.Mock).mockResolvedValue({ id: "batch-1", status: "failed" });
+    (prisma.uploadRowStaging.count as jest.Mock).mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+      Promise.resolve("status" in where ? 2 : 10)
+    );
+    (prisma.validationError.count as jest.Mock).mockResolvedValue(3);
+    (prisma.validationError.findMany as jest.Mock).mockImplementation(({ select }: { select?: object }) =>
+      select
+        ? Promise.resolve([{ rowNumber: 4 }, { rowNumber: 5 }])
+        : Promise.resolve([
+            { rowNumber: 4, columnName: "cost_center_code", errorCode: "E_INVALID_COST_CENTER", severity: "error", message: "not found" },
+          ])
+    );
+    const service = new UploadService(prisma, storageService, uploadQueueService, periodService, virusScanner);
+
+    const result = await service.getValidationResult("hospital-1", "batch-1", { page: 1, limit: 200 });
+
+    expect(result.uploadBatchId).toBe("batch-1");
+    expect(result.status).toBe("failed");
+    expect(result.summary).toEqual({ totalRows: 10, validRows: 8, errorRows: 2, warningRows: 2 });
+    expect(result.errors).toEqual([
+      { rowNumber: 4, column: "cost_center_code", code: "E_INVALID_COST_CENTER", severity: "error", message: "not found" },
+    ]);
+    expect(result.meta).toEqual({ page: 1, limit: 200, total: 3 });
+  });
+
+  it("throws NotFoundException when the batch doesn't exist in this hospital", async () => {
+    const { prisma, storageService, uploadQueueService, periodService, virusScanner } = makeDeps();
+    (prisma.uploadBatch.findFirst as jest.Mock).mockResolvedValue(null);
+    const service = new UploadService(prisma, storageService, uploadQueueService, periodService, virusScanner);
+
+    await expect(service.getValidationResult("hospital-1", "missing", { page: 1, limit: 20 })).rejects.toBeInstanceOf(
+      NotFoundException
+    );
   });
 });

@@ -65,6 +65,8 @@ model Hospital {
   hospitalSettings HospitalSettings?
   periods          Period[]
   uploadBatches    UploadBatch[]
+  costEntries      CostEntry[]
+  revenueEntries   RevenueEntry[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -353,6 +355,7 @@ model CostCenter {
   allocationRules AllocationRule[]
   employees       Employee[]
   assets          Asset[]
+  costEntries     CostEntry[]
   createdBy       User?            @relation("CostCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy       User?            @relation("CostCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
@@ -374,10 +377,11 @@ model ProfitCenter {
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
 
-  hospital  Hospital  @relation(fields: [hospitalId], references: [id])
-  services  Service[]
-  createdBy User?     @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy User?     @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
+  services       Service[]
+  revenueEntries RevenueEntry[]
+  createdBy      User?          @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy      User?          @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -446,9 +450,10 @@ model CoaAccount {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  hospital  Hospital @relation(fields: [hospitalId], references: [id])
-  createdBy User?    @relation("CoaAccountCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy User?    @relation("CoaAccountUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital    Hospital    @relation(fields: [hospitalId], references: [id])
+  costEntries CostEntry[]
+  createdBy   User?       @relation("CoaAccountCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy   User?       @relation("CoaAccountUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -495,11 +500,12 @@ model Service {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  hospital     Hospital     @relation(fields: [hospitalId], references: [id])
-  profitCenter ProfitCenter @relation(fields: [profitCenterId], references: [id])
-  tariffs      Tariff[]
-  createdBy    User?        @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy    User?        @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
+  profitCenter   ProfitCenter   @relation(fields: [profitCenterId], references: [id])
+  tariffs        Tariff[]
+  revenueEntries RevenueEntry[]
+  createdBy      User?          @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy      User?          @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -699,10 +705,12 @@ model Period {
   updatedAt       DateTime     @updatedAt @map("updated_at")
   deletedAt       DateTime?    @map("deleted_at")
 
-  hospital      Hospital      @relation(fields: [hospitalId], references: [id])
-  createdBy     User?         @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy     User?         @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  uploadBatches UploadBatch[]
+  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
+  createdBy      User?          @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy      User?          @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  uploadBatches  UploadBatch[]
+  costEntries    CostEntry[]
+  revenueEntries RevenueEntry[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
@@ -764,6 +772,8 @@ model UploadBatch {
   uploadedBy       User               @relation("UploadBatchUploadedBy", fields: [uploadedByUserId], references: [id])
   rows             UploadRowStaging[]
   validationErrors ValidationError[]
+  costEntries      CostEntry[]
+  revenueEntries   RevenueEntry[]
 
   @@index([hospitalId, status])
   @@index([periodId])
@@ -826,6 +836,61 @@ model ValidationError {
 
   @@index([uploadBatchId])
   @@map("validation_errors")
+}
+
+// --- Transactional (docs/02_DOMAIN_MODEL.md §1, DATABASE_SCHEMA.md) --------
+
+/// docs/02_DOMAIN_MODEL.md §4: "Transactional and calculation tables... are
+/// append-only and not soft-deleted; corrections happen via new
+/// upload_batches/allocation_runs, never in-place edits" — no `updatedAt`/
+/// `deletedAt` here, matching that convention. `periodId`/`sourceFileId` are
+/// real FKs (`Period`/`UploadBatch`), not the free-string/implicit-id
+/// `DATABASE_SCHEMA.md` originally had — same normalization already applied
+/// to `UploadBatch.periodId`. Written only by `ConfirmService.confirm()`
+/// (Sprint 4 sub-task 6) inside its all-or-nothing promotion transaction;
+/// removed only by `ConfirmService.rollback()`, scoped by `sourceFileId`
+/// (docs/01_BUSINESS_RULES.md §5).
+model CostEntry {
+  id           String   @id @default(uuid())
+  hospitalId   String   @map("hospital_id")
+  periodId     String   @map("period_id")
+  costCenterId String   @map("cost_center_id")
+  coaAccountId String   @map("coa_account_id")
+  nominal      Decimal  @db.Decimal(16, 2)
+  sourceFileId String   @map("source_file_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  hospital   Hospital    @relation(fields: [hospitalId], references: [id])
+  period     Period      @relation(fields: [periodId], references: [id])
+  costCenter CostCenter  @relation(fields: [costCenterId], references: [id])
+  coaAccount CoaAccount  @relation(fields: [coaAccountId], references: [id])
+  sourceFile UploadBatch @relation(fields: [sourceFileId], references: [id])
+
+  @@index([hospitalId, periodId])
+  @@index([sourceFileId])
+  @@map("cost_entries")
+}
+
+model RevenueEntry {
+  id             String   @id @default(uuid())
+  hospitalId     String   @map("hospital_id")
+  periodId       String   @map("period_id")
+  profitCenterId String   @map("profit_center_id")
+  serviceId      String   @map("service_id")
+  volume         Decimal  @db.Decimal(14, 2)
+  revenue        Decimal  @db.Decimal(16, 2)
+  sourceFileId   String   @map("source_file_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  hospital     Hospital     @relation(fields: [hospitalId], references: [id])
+  period       Period       @relation(fields: [periodId], references: [id])
+  profitCenter ProfitCenter @relation(fields: [profitCenterId], references: [id])
+  service      Service      @relation(fields: [serviceId], references: [id])
+  sourceFile   UploadBatch  @relation(fields: [sourceFileId], references: [id])
+
+  @@index([hospitalId, periodId])
+  @@index([sourceFileId])
+  @@map("revenue_entries")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -
