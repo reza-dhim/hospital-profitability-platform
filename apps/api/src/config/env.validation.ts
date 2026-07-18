@@ -1,5 +1,5 @@
 import { plainToInstance } from "class-transformer";
-import { IsIn, IsInt, IsString, Min, validateSync } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, Min, validateSync } from "class-validator";
 
 class EnvironmentVariables {
   @IsIn(["development", "test", "production"])
@@ -20,6 +20,29 @@ class EnvironmentVariables {
 
   @IsString()
   JWT_ACCESS_PUBLIC_KEY!: string;
+
+  /**
+   * Left unset for real AWS S3 (which resolves its own regional endpoint);
+   * set for any S3-compatible service reached via a fixed URL, i.e. local/CI
+   * MinIO (docs/06_UPLOAD_ENGINE.md §4). `StorageService` uses
+   * path-style addressing whenever this is set, which MinIO requires.
+   */
+  @IsOptional()
+  @IsString()
+  S3_ENDPOINT?: string;
+
+  @IsOptional()
+  @IsString()
+  S3_REGION?: string;
+
+  @IsString()
+  S3_ACCESS_KEY_ID!: string;
+
+  @IsString()
+  S3_SECRET_ACCESS_KEY!: string;
+
+  @IsString()
+  S3_BUCKET!: string;
 }
 
 /**

@@ -64,6 +64,7 @@ model Hospital {
   tariffs          Tariff[]
   hospitalSettings HospitalSettings?
   periods          Period[]
+  uploadBatches    UploadBatch[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -173,6 +174,7 @@ model User {
   hospitalSettingsUpdated HospitalSettings[] @relation("HospitalSettingsUpdatedBy")
   periodsCreated          Period[]           @relation("PeriodCreatedBy")
   periodsUpdated          Period[]           @relation("PeriodUpdatedBy")
+  uploadBatchesUploaded   UploadBatch[]      @relation("UploadBatchUploadedBy")
 
   auditLogs AuditLog[]
 
@@ -640,23 +642,34 @@ model Tariff {
 /// Drives the allocation-method decision (`08_COST_ALLOCATION_ENGINE.md`) and
 /// the default target margin used before any `target_margins` override
 /// exists (deferred — needs `periods`, out of Sprint 3 scope). Defaults per
-/// docs/24_CONFIGURATION.md §1 (`step_down`, 15%, January, `id-ID`). Only the
-/// four Sprint-3-relevant settings from that table are modeled — the rest
-/// (`max_upload_file_size_mb`, `ai_enabled`, `ai_monthly_token_budget`,
-/// `email_notifications_enabled`) belong to Upload/AI/Notification sprints
-/// and are added by whichever sprint owns that feature.
+/// docs/24_CONFIGURATION.md §1 (`step_down`, 15%, January, `id-ID`, 25MB).
+/// Only the Sprint-3/4-relevant settings from that table are modeled so
+/// far — the rest (`ai_enabled`, `ai_monthly_token_budget`,
+/// `email_notifications_enabled`) belong to AI/Notification sprints and are
+/// added by whichever sprint owns that feature.
 model HospitalSettings {
-  id                   String           @id @default(uuid())
-  hospitalId           String           @unique @map("hospital_id")
-  allocationMethod     AllocationMethod @default(step_down) @map("allocation_method")
-  defaultTargetMargin  Decimal          @default(15) @map("default_target_margin") @db.Decimal(5, 2)
-  fiscalYearStartMonth Int              @default(1) @map("fiscal_year_start_month")
-  locale               String           @default("id-ID")
-  createdByUserId      String?          @map("created_by_user_id")
-  updatedByUserId      String?          @map("updated_by_user_id")
-  createdAt            DateTime         @default(now()) @map("created_at")
-  updatedAt            DateTime         @updatedAt @map("updated_at")
-  deletedAt            DateTime?        @map("deleted_at")
+  id                      String           @id @default(uuid())
+  hospitalId              String           @unique @map("hospital_id")
+  allocationMethod        AllocationMethod @default(step_down) @map("allocation_method")
+  defaultTargetMargin     Decimal          @default(15) @map("default_target_margin") @db.Decimal(5, 2)
+  fiscalYearStartMonth    Int              @default(1) @map("fiscal_year_start_month")
+  locale                  String           @default("id-ID")
+  /// docs/06_UPLOAD_ENGINE.md §3, docs/24_CONFIGURATION.md — was deliberately
+  /// left out of the Sprint-3 model (see this model's own doc comment
+  /// above) since nothing consumed it yet; added now that upload intake
+  /// (Sprint 4) needs a per-hospital limit to check against.
+  maxUploadFileSizeMb     Int              @default(25) @map("max_upload_file_size_mb")
+  /// docs/07_VALIDATION_ENGINE.md §3/§5: "rule thresholds (e.g., outlier
+  /// stddev multiplier) are read from hospital_settings/config, not literals
+  /// in code." `W_OUTLIER_NOMINAL` flags a value more than this many
+  /// standard deviations from the trailing-6-period mean; 3 is the
+  /// documented default heuristic.
+  outlierStddevMultiplier Decimal          @default(3) @map("outlier_stddev_multiplier") @db.Decimal(4, 2)
+  createdByUserId         String?          @map("created_by_user_id")
+  updatedByUserId         String?          @map("updated_by_user_id")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
+  deletedAt               DateTime?        @map("deleted_at")
 
   hospital  Hospital @relation(fields: [hospitalId], references: [id])
   createdBy User?    @relation("HospitalSettingsCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -686,13 +699,133 @@ model Period {
   updatedAt       DateTime     @updatedAt @map("updated_at")
   deletedAt       DateTime?    @map("deleted_at")
 
-  hospital  Hospital @relation(fields: [hospitalId], references: [id])
-  createdBy User?    @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy User?    @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital      Hospital      @relation(fields: [hospitalId], references: [id])
+  createdBy     User?         @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy     User?         @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  uploadBatches UploadBatch[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
   @@map("periods")
+}
+
+/// Upload Pipeline (docs/02_DOMAIN_MODEL.md §2 `upload_batches`,
+/// docs/06_UPLOAD_ENGINE.md §2). All 8 documented types are modeled here
+/// (the enum is cheap and matches the domain model exactly) even though
+/// Sprint 4 sub-task 3 only accepts `cost`/`revenue` at the application
+/// layer for now — see `upload.constants.ts`'s `SUPPORTED_UPLOAD_TYPES`.
+enum UploadType {
+  cost
+  revenue
+  driver
+  asset
+  employee
+  medical_activity
+  bmhp
+  tariff
+
+  @@map("upload_type")
+}
+
+enum UploadBatchStatus {
+  staged
+  validating
+  validated
+  confirmed
+  rolled_back
+  failed
+
+  @@map("upload_batch_status")
+}
+
+/// Append-only — not a master-data/configuration table, so no soft-delete
+/// (docs/02_DOMAIN_MODEL.md §3's soft-delete convention doesn't apply here);
+/// corrections happen via rollback + a new batch, never in-place edits.
+/// `fileUrl` stores the S3 object KEY (`StorageService.buildUploadKey()`),
+/// not a URL — a signed download URL is generated on demand and expires, so
+/// persisting one here would go stale.
+model UploadBatch {
+  id               String            @id @default(uuid())
+  hospitalId       String            @map("hospital_id")
+  type             UploadType
+  periodId         String            @map("period_id")
+  fileName         String            @map("file_name")
+  fileUrl          String            @map("file_url")
+  uploadedByUserId String            @map("uploaded_by_user_id")
+  status           UploadBatchStatus @default(staged)
+  rowCount         Int?              @map("row_count")
+  errorCount       Int?              @map("error_count")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  confirmedAt      DateTime?         @map("confirmed_at")
+  rolledBackAt     DateTime?         @map("rolled_back_at")
+
+  hospital         Hospital           @relation(fields: [hospitalId], references: [id])
+  period           Period             @relation(fields: [periodId], references: [id])
+  uploadedBy       User               @relation("UploadBatchUploadedBy", fields: [uploadedByUserId], references: [id])
+  rows             UploadRowStaging[]
+  validationErrors ValidationError[]
+
+  @@index([hospitalId, status])
+  @@index([periodId])
+  @@map("upload_batches")
+}
+
+enum UploadRowStatus {
+  valid
+  invalid
+  promoted
+
+  @@map("upload_row_status")
+}
+
+/// docs/02_DOMAIN_MODEL.md `upload_rows_staging`. Holds parsed rows before
+/// promotion to live tables — never queried by dashboards. No `hospital_id`
+/// column of its own (matches the documented field list exactly); RLS scopes
+/// via an `EXISTS` join to `upload_batches.hospital_id`, the same pattern
+/// `role_permissions`/`refresh_tokens` already use in
+/// `20260713120000_add_row_level_security` for child tables without their
+/// own tenant column.
+model UploadRowStaging {
+  id            String          @id @default(uuid())
+  uploadBatchId String          @map("upload_batch_id")
+  rowNumber     Int             @map("row_number")
+  rawJson       Json            @map("raw_json")
+  status        UploadRowStatus @default(valid)
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  uploadBatch UploadBatch @relation(fields: [uploadBatchId], references: [id])
+
+  @@index([uploadBatchId])
+  @@map("upload_rows_staging")
+}
+
+enum ValidationSeverity {
+  error
+  warning
+
+  @@map("validation_severity")
+}
+
+/// docs/02_DOMAIN_MODEL.md `validation_errors`, docs/07_VALIDATION_ENGINE.md
+/// §2 error-code taxonomy. `rowNumber` is nullable — structural errors
+/// (`E_TEMPLATE_VERSION`, `E_REQUIRED_COLUMN_MISSING`) are file-level, not
+/// tied to a specific row; row-level/cross-row errors (Sprint 4 sub-task 5)
+/// always set it. Same no-`hospital_id`/`EXISTS`-join RLS shape as
+/// `UploadRowStaging` above.
+model ValidationError {
+  id            String             @id @default(uuid())
+  uploadBatchId String             @map("upload_batch_id")
+  rowNumber     Int?               @map("row_number")
+  columnName    String?            @map("column_name")
+  errorCode     String             @map("error_code")
+  message       String
+  severity      ValidationSeverity
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  uploadBatch UploadBatch @relation(fields: [uploadBatchId], references: [id])
+
+  @@index([uploadBatchId])
+  @@map("validation_errors")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -

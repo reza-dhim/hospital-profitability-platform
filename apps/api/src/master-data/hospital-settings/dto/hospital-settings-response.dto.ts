@@ -8,6 +8,8 @@ export class HospitalSettingsResponseDto {
   @ApiProperty({ type: "string" }) defaultTargetMargin!: unknown;
   @ApiProperty() fiscalYearStartMonth!: number;
   @ApiProperty() locale!: string;
+  @ApiProperty() maxUploadFileSizeMb!: number;
+  @ApiProperty({ type: "string" }) outlierStddevMultiplier!: unknown;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
 }

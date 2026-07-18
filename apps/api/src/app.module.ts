@@ -3,6 +3,8 @@ import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import { AppConfigModule } from "./config/app-config.module";
 import { TenantContextModule } from "./tenancy/tenant-context.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { StorageModule } from "./storage/storage.module";
+import { QueueModule } from "./queue/queue.module";
 import { HealthModule } from "./health/health.module";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { AuditInterceptor } from "./common/interceptors/audit.interceptor";
@@ -30,6 +32,8 @@ import { AuditModule } from "./audit/audit.module";
     AppConfigModule,
     TenantContextModule,
     PrismaModule,
+    StorageModule,
+    QueueModule,
     HealthModule,
     AuthModule,
     TenancyModule,

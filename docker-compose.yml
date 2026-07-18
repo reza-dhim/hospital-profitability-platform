@@ -31,6 +31,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # S3-compatible object storage for uploaded files (docs/06_UPLOAD_ENGINE.md
+  # §4). Ports offset from MinIO's 9000/9001 defaults, same reasoning as
+  # postgres/redis above (avoids colliding with another local MinIO). The API
+  # client (StorageService) creates the bucket itself on startup if missing —
+  # no init container needed here.
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: hpp_minio
+      MINIO_ROOT_PASSWORD: hpp_minio_secret
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres-data:
   redis-data:
+  minio-data:

@@ -31,4 +31,23 @@ export class UpdateHospitalSettingsDto {
   @IsString()
   @MaxLength(16)
   locale?: string;
+
+  @ApiPropertyOptional({ example: 25, description: "Max upload file size in MB (docs/06_UPLOAD_ENGINE.md §3)." })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  maxUploadFileSizeMb?: number;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: "W_OUTLIER_NOMINAL stddev multiplier (docs/07_VALIDATION_ENGINE.md §3).",
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  outlierStddevMultiplier?: number;
 }
