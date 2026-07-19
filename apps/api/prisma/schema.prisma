@@ -67,6 +67,8 @@ model Hospital {
   uploadBatches    UploadBatch[]
   costEntries      CostEntry[]
   revenueEntries   RevenueEntry[]
+  driverValues     DriverValue[]
+  allocationRuns   AllocationRun[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -177,6 +179,7 @@ model User {
   periodsCreated          Period[]           @relation("PeriodCreatedBy")
   periodsUpdated          Period[]           @relation("PeriodUpdatedBy")
   uploadBatchesUploaded   UploadBatch[]      @relation("UploadBatchUploadedBy")
+  allocationRunsCreated   AllocationRun[]    @relation("AllocationRunCreatedBy")
 
   auditLogs AuditLog[]
 
@@ -351,13 +354,16 @@ model CostCenter {
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
 
-  hospital        Hospital         @relation(fields: [hospitalId], references: [id])
-  allocationRules AllocationRule[]
-  employees       Employee[]
-  assets          Asset[]
-  costEntries     CostEntry[]
-  createdBy       User?            @relation("CostCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy       User?            @relation("CostCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital               Hospital         @relation(fields: [hospitalId], references: [id])
+  allocationRules        AllocationRule[]
+  employees              Employee[]
+  assets                 Asset[]
+  costEntries            CostEntry[]
+  driverValuesAsTarget   DriverValue[]
+  allocatedCostsAsSource AllocatedCost[]  @relation("AllocatedCostSource")
+  allocatedCostsAsTarget AllocatedCost[]  @relation("AllocatedCostTarget")
+  createdBy              User?            @relation("CostCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy              User?            @relation("CostCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -377,11 +383,13 @@ model ProfitCenter {
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
 
-  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
-  services       Service[]
-  revenueEntries RevenueEntry[]
-  createdBy      User?          @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy      User?          @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital             Hospital        @relation(fields: [hospitalId], references: [id])
+  services             Service[]
+  revenueEntries       RevenueEntry[]
+  driverValuesAsTarget DriverValue[]
+  allocatedCosts       AllocatedCost[]
+  createdBy            User?           @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy            User?           @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -403,6 +411,8 @@ model Driver {
 
   hospital        Hospital         @relation(fields: [hospitalId], references: [id])
   allocationRules AllocationRule[]
+  driverValues    DriverValue[]
+  allocatedCosts  AllocatedCost[]
   createdBy       User?            @relation("DriverCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy       User?            @relation("DriverUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
@@ -414,18 +424,24 @@ model Driver {
 /// docs/08_COST_ALLOCATION_ENGINE.md §2: links a cost center to the driver
 /// used to spread its pool, `priority` orders step-down processing.
 model AllocationRule {
-  id              String    @id @default(uuid())
-  hospitalId      String    @map("hospital_id")
-  costCenterId    String    @map("cost_center_id")
-  driverId        String    @map("driver_id")
-  method          String
+  id              String           @id @default(uuid())
+  hospitalId      String           @map("hospital_id")
+  costCenterId    String           @map("cost_center_id")
+  driverId        String           @map("driver_id")
+  /// Was an unvalidated free string through Sprint 3 (comment there: "Free-
+  /// form... label", deliberately left loose pending Sprint 5's real
+  /// design). Tightened here to the same `AllocationMethod` enum
+  /// `hospital_settings.allocation_method` already uses — a hospital may
+  /// keep parallel rule sets tagged by method (docs/01_BUSINESS_RULES.md
+  /// §2: a run's method selects which set applies), not just one.
+  method          AllocationMethod
   priority        Int
-  effectivePeriod String    @map("effective_period")
-  createdByUserId String?   @map("created_by_user_id")
-  updatedByUserId String?   @map("updated_by_user_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  deletedAt       DateTime? @map("deleted_at")
+  effectivePeriod String           @map("effective_period")
+  createdByUserId String?          @map("created_by_user_id")
+  updatedByUserId String?          @map("updated_by_user_id")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  deletedAt       DateTime?        @map("deleted_at")
 
   hospital   Hospital   @relation(fields: [hospitalId], references: [id])
   costCenter CostCenter @relation(fields: [costCenterId], references: [id])
@@ -705,12 +721,14 @@ model Period {
   updatedAt       DateTime     @updatedAt @map("updated_at")
   deletedAt       DateTime?    @map("deleted_at")
 
-  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
-  createdBy      User?          @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy      User?          @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital       Hospital        @relation(fields: [hospitalId], references: [id])
+  createdBy      User?           @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy      User?           @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   uploadBatches  UploadBatch[]
   costEntries    CostEntry[]
   revenueEntries RevenueEntry[]
+  driverValues   DriverValue[]
+  allocationRuns AllocationRun[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
@@ -774,6 +792,7 @@ model UploadBatch {
   validationErrors ValidationError[]
   costEntries      CostEntry[]
   revenueEntries   RevenueEntry[]
+  driverValues     DriverValue[]
 
   @@index([hospitalId, status])
   @@index([periodId])
@@ -891,6 +910,126 @@ model RevenueEntry {
   @@index([hospitalId, periodId])
   @@index([sourceFileId])
   @@map("revenue_entries")
+}
+
+/// A driver's value can target *either* a cost center (feeds step-down
+/// cost-center-to-cost-center flow) or a profit center (feeds
+/// cost-center-to-profit-center flow) — `DATABASE_SCHEMA.md`'s literal
+/// `target_center_id` is a single generic column with no discriminator;
+/// modeled here as two nullable FKs instead (Sprint 5 sub-task 0 design
+/// decision) so the DB itself enforces the reference is valid, not just
+/// application code. Exactly one of `targetCostCenterId` /
+/// `targetProfitCenterId` is set per row — enforced by a `CHECK` constraint
+/// added by hand in this model's migration (Prisma has no schema-level
+/// syntax for it).
+model DriverValue {
+  id                   String   @id @default(uuid())
+  hospitalId           String   @map("hospital_id")
+  periodId             String   @map("period_id")
+  driverId             String   @map("driver_id")
+  targetCostCenterId   String?  @map("target_cost_center_id")
+  targetProfitCenterId String?  @map("target_profit_center_id")
+  value                Decimal  @db.Decimal(14, 2)
+  sourceFileId         String   @map("source_file_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  hospital           Hospital      @relation(fields: [hospitalId], references: [id])
+  period             Period        @relation(fields: [periodId], references: [id])
+  driver             Driver        @relation(fields: [driverId], references: [id])
+  targetCostCenter   CostCenter?   @relation(fields: [targetCostCenterId], references: [id])
+  targetProfitCenter ProfitCenter? @relation(fields: [targetProfitCenterId], references: [id])
+  sourceFile         UploadBatch   @relation(fields: [sourceFileId], references: [id])
+
+  @@index([hospitalId, periodId])
+  @@index([sourceFileId])
+  @@map("driver_values")
+}
+
+// --- Calculation (docs/02_DOMAIN_MODEL.md §1, DATABASE_SCHEMA.md) ----------
+
+enum AllocationRunStatus {
+  draft
+  running
+  completed
+  failed
+
+  @@map("allocation_run_status")
+}
+
+/// docs/08_COST_ALLOCATION_ENGINE.md §3 run lifecycle: draft -> running ->
+/// completed | failed. Immutable once `completed`
+/// (docs/01_BUSINESS_RULES.md §4) — recalculation always creates a NEW row
+/// with `supersedesRunId` set, never mutates an existing completed run. No
+/// `updatedAt`/soft-delete — same append-only convention as `CostEntry` et
+/// al (Calculation group, not Master Data). `supersedesRunId` is `@unique`
+/// so the supersede chain stays linear (only one run may claim to supersede
+/// a given prior run).
+model AllocationRun {
+  id              String              @id @default(uuid())
+  hospitalId      String              @map("hospital_id")
+  periodId        String              @map("period_id")
+  method          AllocationMethod
+  status          AllocationRunStatus @default(draft)
+  startedAt       DateTime?           @map("started_at")
+  finishedAt      DateTime?           @map("finished_at")
+  errorMessage    String?             @map("error_message")
+  /// Run-level warnings that don't fail the run (currently only
+  /// `W_DRIVER_ZERO` — docs/08_COST_ALLOCATION_ENGINE.md §5's
+  /// no-driver-data case, confirmed Sprint 5 deviation: equal-split instead
+  /// of leaving unallocated, but never silent). Array of
+  /// `{ code, costCenterId, driverId }`, set once on completion — not
+  /// appended to incrementally.
+  warnings        Json?
+  supersedesRunId String?             @unique @map("supersedes_run_id")
+  /// docs/01_BUSINESS_RULES.md §5: an upload rollback invalidates every
+  /// `allocation_run` for the affected period by marking it stale — never
+  /// deleted or mutated otherwise (still viewable for audit), but the
+  /// dashboard must fall back to the latest non-stale `completed` run.
+  /// Orthogonal to `status`: a stale run is still `completed`, just flagged.
+  isStale         Boolean             @default(false) @map("is_stale")
+  staleAt         DateTime?           @map("stale_at")
+  createdByUserId String              @map("created_by_user_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  hospital       Hospital        @relation(fields: [hospitalId], references: [id])
+  period         Period          @relation(fields: [periodId], references: [id])
+  createdBy      User            @relation("AllocationRunCreatedBy", fields: [createdByUserId], references: [id])
+  supersedesRun  AllocationRun?  @relation("AllocationRunSupersedes", fields: [supersedesRunId], references: [id])
+  supersededBy   AllocationRun?  @relation("AllocationRunSupersedes")
+  allocatedCosts AllocatedCost[]
+
+  @@index([hospitalId, periodId])
+  @@map("allocation_runs")
+}
+
+/// Immutable once its run is `completed` — no update/delete path exists at
+/// the application layer, matching `docs/01_BUSINESS_RULES.md` §4. Target
+/// is polymorphic (docs/08_COST_ALLOCATION_ENGINE.md §2's step-down flow: a
+/// cost center allocates to *either* another cost center or a profit
+/// center) — same two-nullable-FK + `CHECK`-constraint design as
+/// `DriverValue`. No `hospital_id` column of its own — matches
+/// `DATABASE_SCHEMA.md`'s literal `allocated_costs` field list exactly
+/// (Calculation group, not Transactional); RLS scopes via an `EXISTS` join
+/// to `allocation_runs.hospital_id`, the same pattern already used for
+/// `upload_rows_staging`/`validation_errors`.
+model AllocatedCost {
+  id                   String   @id @default(uuid())
+  allocationRunId      String   @map("allocation_run_id")
+  sourceCostCenterId   String   @map("source_cost_center_id")
+  targetCostCenterId   String?  @map("target_cost_center_id")
+  targetProfitCenterId String?  @map("target_profit_center_id")
+  driverId             String   @map("driver_id")
+  amount               Decimal  @db.Decimal(16, 2)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  allocationRun      AllocationRun @relation(fields: [allocationRunId], references: [id])
+  sourceCostCenter   CostCenter    @relation("AllocatedCostSource", fields: [sourceCostCenterId], references: [id])
+  targetCostCenter   CostCenter?   @relation("AllocatedCostTarget", fields: [targetCostCenterId], references: [id])
+  targetProfitCenter ProfitCenter? @relation(fields: [targetProfitCenterId], references: [id])
+  driver             Driver        @relation(fields: [driverId], references: [id])
+
+  @@index([allocationRunId])
+  @@map("allocated_costs")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -

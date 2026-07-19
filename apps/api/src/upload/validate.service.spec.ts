@@ -47,6 +47,7 @@ function makeDeps() {
     coaAccount: { findMany: jest.fn().mockResolvedValue([{ code: "COA-1" }]) },
     profitCenter: { findMany: jest.fn().mockResolvedValue([]) },
     service: { findMany: jest.fn().mockResolvedValue([]) },
+    driver: { findMany: jest.fn().mockResolvedValue([]) },
     hospitalSettings: { findUnique: jest.fn().mockResolvedValue(null) },
     period: { findUnique: jest.fn().mockResolvedValue(validatingCostBatch.period), findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),

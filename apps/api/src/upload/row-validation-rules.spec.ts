@@ -5,6 +5,7 @@ const lookup: MasterDataLookup = {
   costCenterCodes: new Set(["CC-1"]),
   coaAccountCodes: new Set(["COA-1"]),
   profitCenterCodes: new Set(["PC-1"]),
+  driverCodes: new Set(["DRV-1"]),
   serviceProfitCenter: new Map([["SVC-1", "PC-1"]]),
 };
 
@@ -16,8 +17,26 @@ function runRevenueRules(raw: Record<string, string | number | null>, periodLabe
   return ROW_RULES.revenue!.flatMap((rule) => rule(raw, periodLabel, lookup));
 }
 
+function runDriverRules(raw: Record<string, string | number | null>, periodLabel = "2026-01"): ValidationIssue[] {
+  return ROW_RULES.driver!.flatMap((rule) => rule(raw, periodLabel, lookup));
+}
+
 const validCostRow = { period: "2026-01", cost_center_code: "CC-1", coa_account_code: "COA-1", nominal: 1000 };
 const validRevenueRow = { period: "2026-01", profit_center_code: "PC-1", service_code: "SVC-1", volume: 10, revenue: 5000 };
+const validDriverRowToCostCenter = {
+  period: "2026-01",
+  driver_code: "DRV-1",
+  target_type: "cost_center",
+  target_code: "CC-1",
+  value: 700,
+};
+const validDriverRowToProfitCenter = {
+  period: "2026-01",
+  driver_code: "DRV-1",
+  target_type: "profit_center",
+  target_code: "PC-1",
+  value: 300,
+};
 
 describe("cost row rules", () => {
   it("passes a fully valid row with no issues", () => {
@@ -100,5 +119,56 @@ describe("revenue row rules", () => {
   it("flags a zero volume with W_ZERO_VALUE", () => {
     const issues = runRevenueRules({ ...validRevenueRow, volume: 0 });
     expect(issues).toContainEqual(expect.objectContaining({ errorCode: "W_ZERO_VALUE", columnName: "volume" }));
+  });
+});
+
+describe("driver row rules", () => {
+  it("passes a fully valid row targeting a cost center with no issues", () => {
+    expect(runDriverRules(validDriverRowToCostCenter)).toEqual([]);
+  });
+
+  it("passes a fully valid row targeting a profit center with no issues", () => {
+    expect(runDriverRules(validDriverRowToProfitCenter)).toEqual([]);
+  });
+
+  it("flags every empty required field with E_MISSING_VALUE", () => {
+    const issues = runDriverRules({ period: "2026-01", driver_code: null, target_type: "", target_code: "CC-1", value: 100 });
+    const codes = issues.map((i) => `${i.errorCode}:${i.columnName}`);
+    expect(codes).toEqual(expect.arrayContaining(["E_MISSING_VALUE:driver_code", "E_MISSING_VALUE:target_type"]));
+  });
+
+  it("flags an unrecognized target_type with E_INVALID_TYPE", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, target_type: "branch" });
+    expect(issues).toContainEqual(expect.objectContaining({ errorCode: "E_INVALID_TYPE", columnName: "target_type" }));
+  });
+
+  it("flags an unknown driver_code with E_INVALID_DRIVER", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, driver_code: "DRV-999" });
+    expect(issues).toContainEqual(expect.objectContaining({ errorCode: "E_INVALID_DRIVER" }));
+  });
+
+  it("flags an unknown target_code with E_INVALID_COST_CENTER when target_type is cost_center", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, target_code: "CC-999" });
+    expect(issues).toContainEqual(expect.objectContaining({ errorCode: "E_INVALID_COST_CENTER", columnName: "target_code" }));
+  });
+
+  it("flags an unknown target_code with E_INVALID_PROFIT_CENTER when target_type is profit_center", () => {
+    const issues = runDriverRules({ ...validDriverRowToProfitCenter, target_code: "PC-999" });
+    expect(issues).toContainEqual(expect.objectContaining({ errorCode: "E_INVALID_PROFIT_CENTER", columnName: "target_code" }));
+  });
+
+  it("does not double-flag target_code when target_type is already invalid", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, target_type: "branch", target_code: "whatever" });
+    expect(issues.filter((i) => i.columnName === "target_code")).toEqual([]);
+  });
+
+  it("flags a non-numeric value with E_INVALID_TYPE", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, value: "lots" });
+    expect(issues).toContainEqual(expect.objectContaining({ errorCode: "E_INVALID_TYPE", columnName: "value" }));
+  });
+
+  it("does NOT flag a driver value of exactly zero — a real zero is a legitimate answer, not treated like W_ZERO_VALUE for cost/revenue", () => {
+    const issues = runDriverRules({ ...validDriverRowToCostCenter, value: 0 });
+    expect(issues).toEqual([]);
   });
 });

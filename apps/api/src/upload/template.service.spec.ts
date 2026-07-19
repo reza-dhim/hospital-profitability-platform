@@ -31,7 +31,18 @@ describe("TemplateService", () => {
     expect(headerValues).toEqual(["period", "profit_center_code", "service_code", "volume", "revenue"]);
   });
 
+  it("generates a driver template with its documented columns", async () => {
+    const buffer = await service.generate("driver");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Data")!;
+
+    const headerValues = [1, 2, 3, 4, 5].map((col) => sheet.getRow(2).getCell(col).value);
+    expect(headerValues).toEqual(["period", "driver_code", "target_type", "target_code", "value"]);
+  });
+
   it("throws NotFoundException for an upload type with no template yet (phased rollout)", async () => {
-    await expect(service.generate("driver")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.generate("asset")).rejects.toBeInstanceOf(NotFoundException);
   });
 });

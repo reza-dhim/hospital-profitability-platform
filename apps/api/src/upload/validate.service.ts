@@ -203,7 +203,7 @@ export class ValidateService {
   }
 
   private async buildLookup(hospitalId: string): Promise<MasterDataLookup> {
-    const [costCenters, coaAccounts, profitCenters, services] = await Promise.all([
+    const [costCenters, coaAccounts, profitCenters, services, drivers] = await Promise.all([
       this.prisma.costCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
       this.prisma.coaAccount.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
       this.prisma.profitCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
@@ -211,11 +211,13 @@ export class ValidateService {
         where: { hospitalId, deletedAt: null },
         select: { code: true, profitCenter: { select: { code: true } } },
       }),
+      this.prisma.driver.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
     ]);
     return {
       costCenterCodes: new Set(costCenters.map((c) => c.code)),
       coaAccountCodes: new Set(coaAccounts.map((c) => c.code)),
       profitCenterCodes: new Set(profitCenters.map((c) => c.code)),
+      driverCodes: new Set(drivers.map((d) => d.code)),
       serviceProfitCenter: new Map(services.map((s) => [s.code, s.profitCenter.code])),
     };
   }

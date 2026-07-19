@@ -56,7 +56,7 @@ describe("UploadService.create", () => {
     const file = await makeValidXlsxFile();
 
     await expect(
-      service.create("hospital-1", "org-1", "driver", { periodId: "period-1" }, file, "actor-1")
+      service.create("hospital-1", "org-1", "asset", { periodId: "period-1" }, file, "actor-1")
     ).rejects.toBeInstanceOf(NotImplementedException);
     expect(periodService.findOne).not.toHaveBeenCalled();
   });

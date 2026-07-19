@@ -8,3 +8,13 @@
  * job's completion, not run in parallel with it).
  */
 export const UPLOAD_QUEUE_NAME = "upload-pipeline";
+
+/**
+ * Dedicated queue for the Cost Allocation Engine (Sprint 5,
+ * docs/08_COST_ALLOCATION_ENGINE.md), separate from `upload-pipeline` — an
+ * allocation run's compute cost (loading all cost_entries/driver_values for
+ * a period, running Direct/Step-Down in memory) is a different workload
+ * shape from upload parsing/validation and shouldn't compete with it for
+ * worker concurrency.
+ */
+export const ALLOCATION_QUEUE_NAME = "allocation-engine";

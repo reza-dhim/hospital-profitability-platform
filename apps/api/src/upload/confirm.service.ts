@@ -14,6 +14,7 @@ interface CodeLookup {
   coaAccountCodeToId: Map<string, string>;
   profitCenterCodeToId: Map<string, string>;
   serviceCodeToId: Map<string, string>;
+  driverCodeToId: Map<string, string>;
 }
 
 function notConfirmable(status: string): ConflictException {
@@ -139,6 +140,31 @@ export class ConfirmService {
                 sourceFileId: batch.id,
               },
             });
+          } else if (batch.type === "driver") {
+            const driverId = lookup.driverCodeToId.get(String(raw.driver_code));
+            // `target_type` picks which of the two polymorphic FKs resolves —
+            // exactly one of these two lookups is even attempted, matching
+            // the DB's own "exactly one set" CHECK constraint.
+            const targetCostCenterId =
+              raw.target_type === "cost_center" ? lookup.costCenterCodeToId.get(String(raw.target_code)) : undefined;
+            const targetProfitCenterId =
+              raw.target_type === "profit_center"
+                ? lookup.profitCenterCodeToId.get(String(raw.target_code))
+                : undefined;
+            if (!driverId || (!targetCostCenterId && !targetProfitCenterId)) {
+              throw promotionReferenceMissing(row.rowNumber);
+            }
+            await tx.driverValue.create({
+              data: {
+                hospitalId,
+                periodId: batch.periodId,
+                driverId,
+                targetCostCenterId: targetCostCenterId ?? null,
+                targetProfitCenterId: targetProfitCenterId ?? null,
+                value: parseNumeric(raw.value ?? null) ?? 0,
+                sourceFileId: batch.id,
+              },
+            });
           }
         }
 
@@ -188,6 +214,8 @@ export class ConfirmService {
           await tx.costEntry.deleteMany({ where: { sourceFileId: batch.id } });
         } else if (batch.type === "revenue") {
           await tx.revenueEntry.deleteMany({ where: { sourceFileId: batch.id } });
+        } else if (batch.type === "driver") {
+          await tx.driverValue.deleteMany({ where: { sourceFileId: batch.id } });
         }
 
         // The row itself was fine (it passed validation) — it's just no
@@ -204,9 +232,14 @@ export class ConfirmService {
           data: { status: "rolled_back", rolledBackAt: new Date() },
         });
 
-        // TODO(Sprint 5, docs/01_BUSINESS_RULES.md §5): mark every
-        // allocation_run for this batch's period `stale` — `allocation_runs`
-        // doesn't exist until Sprint 5's Cost Allocation Engine.
+        // docs/01_BUSINESS_RULES.md §5: rollback invalidates every
+        // allocation_run for the affected period by marking it stale —
+        // never deleted/mutated otherwise, still viewable for audit, but
+        // the dashboard must fall back to the latest non-stale run.
+        await tx.allocationRun.updateMany({
+          where: { periodId: batch.periodId, isStale: false },
+          data: { isStale: true, staleAt: new Date() },
+        });
       });
     } finally {
       this.tenantContextService.setManagedTransaction(false);
@@ -225,27 +258,51 @@ export class ConfirmService {
   }
 
   private async buildCodeLookup(hospitalId: string, type: UploadType): Promise<CodeLookup> {
+    const empty: CodeLookup = {
+      costCenterCodeToId: new Map(),
+      coaAccountCodeToId: new Map(),
+      profitCenterCodeToId: new Map(),
+      serviceCodeToId: new Map(),
+      driverCodeToId: new Map(),
+    };
+
     if (type === "cost") {
       const [costCenters, coaAccounts] = await Promise.all([
         this.prisma.costCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
         this.prisma.coaAccount.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
       ]);
       return {
+        ...empty,
         costCenterCodeToId: new Map(costCenters.map((c) => [c.code, c.id])),
         coaAccountCodeToId: new Map(coaAccounts.map((c) => [c.code, c.id])),
-        profitCenterCodeToId: new Map(),
-        serviceCodeToId: new Map(),
       };
     }
-    const [profitCenters, services] = await Promise.all([
+
+    if (type === "revenue") {
+      const [profitCenters, services] = await Promise.all([
+        this.prisma.profitCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
+        this.prisma.service.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
+      ]);
+      return {
+        ...empty,
+        profitCenterCodeToId: new Map(profitCenters.map((c) => [c.code, c.id])),
+        serviceCodeToId: new Map(services.map((s) => [s.code, s.id])),
+      };
+    }
+
+    // "driver" rows can target either a cost center or a profit center
+    // (docs/08_COST_ALLOCATION_ENGINE.md §2's step-down flow) — needs both
+    // lookups plus the driver catalog itself.
+    const [costCenters, profitCenters, drivers] = await Promise.all([
+      this.prisma.costCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
       this.prisma.profitCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
-      this.prisma.service.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
+      this.prisma.driver.findMany({ where: { hospitalId, deletedAt: null }, select: { id: true, code: true } }),
     ]);
     return {
-      costCenterCodeToId: new Map(),
-      coaAccountCodeToId: new Map(),
+      ...empty,
+      costCenterCodeToId: new Map(costCenters.map((c) => [c.code, c.id])),
       profitCenterCodeToId: new Map(profitCenters.map((c) => [c.code, c.id])),
-      serviceCodeToId: new Map(services.map((s) => [s.code, s.id])),
+      driverCodeToId: new Map(drivers.map((d) => [d.code, d.id])),
     };
   }
 

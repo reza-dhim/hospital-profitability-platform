@@ -2,10 +2,11 @@ import { Global, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import IORedis from "ioredis";
-import { UPLOAD_QUEUE_NAME } from "./queue.constants";
+import { ALLOCATION_QUEUE_NAME, UPLOAD_QUEUE_NAME } from "./queue.constants";
 import { UploadQueueService } from "./upload-queue.service";
+import { AllocationQueueService } from "./allocation-queue.service";
 
-/** `@Global()` — same rationale as `StorageModule`: every upload-pipeline sub-task from here needs `UploadQueueService`. */
+/** `@Global()` — same rationale as `StorageModule`: every upload-pipeline/allocation-engine sub-task from here needs these queue services. */
 @Global()
 @Module({
   imports: [
@@ -22,9 +23,9 @@ import { UploadQueueService } from "./upload-queue.service";
         connection: new IORedis(config.getOrThrow<string>("REDIS_URL"), { maxRetriesPerRequest: null }),
       }),
     }),
-    BullModule.registerQueue({ name: UPLOAD_QUEUE_NAME }),
+    BullModule.registerQueue({ name: UPLOAD_QUEUE_NAME }, { name: ALLOCATION_QUEUE_NAME }),
   ],
-  providers: [UploadQueueService],
-  exports: [UploadQueueService],
+  providers: [UploadQueueService, AllocationQueueService],
+  exports: [UploadQueueService, AllocationQueueService],
 })
 export class QueueModule {}

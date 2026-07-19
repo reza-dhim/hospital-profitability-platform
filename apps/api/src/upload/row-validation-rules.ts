@@ -5,9 +5,13 @@ export interface MasterDataLookup {
   costCenterCodes: Set<string>;
   coaAccountCodes: Set<string>;
   profitCenterCodes: Set<string>;
+  driverCodes: Set<string>;
   /** service_code -> the code of that service's configured profit center (for `E_MAPPING_MISMATCH`). */
   serviceProfitCenter: Map<string, string>;
 }
+
+const TARGET_TYPES = ["cost_center", "profit_center"] as const;
+type TargetType = (typeof TARGET_TYPES)[number];
 
 export type RowRule = (
   raw: Record<string, string | number | null>,
@@ -124,6 +128,61 @@ function mappingMismatchRule(): RowRule {
   };
 }
 
+/** `target_type` must be one of the two polymorphic-target discriminator values (`DriverValue.targetCostCenterId`/`targetProfitCenterId`, Sprint 5 sub-task 0). */
+function targetTypeRule(): RowRule {
+  return (raw) => {
+    const value = raw.target_type;
+    if (isEmpty(value ?? null)) return []; // already flagged by E_MISSING_VALUE
+    if (!TARGET_TYPES.includes(String(value) as TargetType)) {
+      return [
+        {
+          errorCode: "E_INVALID_TYPE",
+          columnName: "target_type",
+          message: `'target_type' must be one of ${TARGET_TYPES.join(", ")}, got '${String(value)}'.`,
+          severity: "error",
+        },
+      ];
+    }
+    return [];
+  };
+}
+
+/** `target_code` is validated against `costCenterCodes` or `profitCenterCodes` depending on the row's own `target_type` — a single field can't pick a fixed lookup the way `codeExistsRule` does. */
+function targetCodeExistsRule(): RowRule {
+  return (raw, _periodLabel, lookup) => {
+    const targetType = raw.target_type;
+    const targetCode = raw.target_code;
+    if (isEmpty(targetCode ?? null)) return [];
+    if (!TARGET_TYPES.includes(String(targetType) as TargetType)) return []; // already flagged by targetTypeRule
+
+    if (targetType === "cost_center") {
+      if (!lookup.costCenterCodes.has(String(targetCode))) {
+        return [
+          {
+            errorCode: "E_INVALID_COST_CENTER",
+            columnName: "target_code",
+            message: `target_code '${String(targetCode)}' not found among cost centers.`,
+            severity: "error",
+          },
+        ];
+      }
+      return [];
+    }
+
+    if (!lookup.profitCenterCodes.has(String(targetCode))) {
+      return [
+        {
+          errorCode: "E_INVALID_PROFIT_CENTER",
+          columnName: "target_code",
+          message: `target_code '${String(targetCode)}' not found among profit centers.`,
+          severity: "error",
+        },
+      ];
+    }
+    return [];
+  };
+}
+
 /**
  * Ordered list of pure functions per upload type (docs/07_VALIDATION_ENGINE.md
  * §5: "Validation rules are implemented as an ordered list of pure
@@ -155,12 +214,22 @@ export const ROW_RULES: Partial<Record<UploadType, RowRule[]>> = {
     mappingMismatchRule(),
     zeroValueRule("volume"),
   ],
+  /** Sprint 5 sub-task 0. No `zeroValueRule` — a real driver value of 0 (e.g. zero devices this period) isn't flagged as `W_ZERO_VALUE`; the allocation engine's own zero-*total* handling (docs §5, Sprint 5 sub-task 3) is a distinct, cost-center-pool-level concern. */
+  driver: [
+    requiredFieldsRule(["period", "driver_code", "target_type", "target_code", "value"]),
+    periodRule(),
+    numericFieldRule("value"),
+    codeExistsRule("driver_code", "E_INVALID_DRIVER", "driverCodes"),
+    targetTypeRule(),
+    targetCodeExistsRule(),
+  ],
 };
 
 /** Natural key fields per type (docs/07_VALIDATION_ENGINE.md §2: `E_DUPLICATE_ROW` — "period + cost_center + coa_account, etc."). */
 export const NATURAL_KEY_FIELDS: Partial<Record<UploadType, string[]>> = {
   cost: ["period", "cost_center_code", "coa_account_code"],
   revenue: ["period", "profit_center_code", "service_code"],
+  driver: ["period", "driver_code", "target_type", "target_code"],
 };
 
 /** Field `W_OUTLIER_NOMINAL` (docs §3) tracks per type. */

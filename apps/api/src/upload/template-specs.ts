@@ -40,4 +40,21 @@ export const TEMPLATE_SPECS: Partial<Record<UploadType, TemplateSpec>> = {
       { header: "revenue" },
     ],
   },
+  /**
+   * Sprint 5 sub-task 0 — feeds the Cost Allocation Engine's driver
+   * percentages (docs/08_COST_ALLOCATION_ENGINE.md §2). `target_type` is
+   * `cost_center` or `profit_center` (docs/02_DOMAIN_MODEL.md's
+   * `driver_values.target_center_id` has no discriminator in the literal
+   * schema — `target_type` + `target_code` together replace it, resolved
+   * to the real polymorphic FK pair at confirm time).
+   */
+  driver: {
+    columns: [
+      { header: "period" },
+      { header: "driver_code" },
+      { header: "target_type" },
+      { header: "target_code" },
+      { header: "value" },
+    ],
+  },
 };

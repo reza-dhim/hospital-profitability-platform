@@ -28,8 +28,10 @@ function makeDeps() {
     $executeRaw: jest.fn(),
     costEntry: { create: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     revenueEntry: { create: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    driverValue: { create: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     uploadRowStaging: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     uploadBatch: { update: jest.fn().mockResolvedValue({}) },
+    allocationRun: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
 
   const prisma = {
@@ -43,6 +45,7 @@ function makeDeps() {
     coaAccount: { findMany: jest.fn().mockResolvedValue([{ id: "coa-id-1", code: "COA-1" }]) },
     profitCenter: { findMany: jest.fn().mockResolvedValue([]) },
     service: { findMany: jest.fn().mockResolvedValue([]) },
+    driver: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
   } as unknown as PrismaService;
 
@@ -167,6 +170,53 @@ describe("ConfirmService.confirm", () => {
     expect(tx.costEntry.create).not.toHaveBeenCalled();
   });
 
+  it("promotes driver rows into DriverValue, resolving target_cost_center_id or target_profit_center_id by target_type", async () => {
+    const { prisma, tx, tenantContextService, auditContextService } = makeDeps();
+    (prisma.uploadBatch.findFirst as jest.Mock).mockResolvedValue({ ...validatedCostBatch, type: "driver" });
+    (prisma.driver.findMany as jest.Mock).mockResolvedValue([{ id: "drv-id-1", code: "DRV-1" }]);
+    (prisma.costCenter.findMany as jest.Mock).mockResolvedValue([{ id: "cc-id-1", code: "CC-1" }]);
+    (prisma.profitCenter.findMany as jest.Mock).mockResolvedValue([{ id: "pc-id-1", code: "PC-1" }]);
+    (prisma.uploadRowStaging.findMany as jest.Mock).mockResolvedValue([
+      {
+        id: "row-1",
+        rowNumber: 1,
+        rawJson: { period: "2026-01", driver_code: "DRV-1", target_type: "cost_center", target_code: "CC-1", value: 700 },
+      },
+      {
+        id: "row-2",
+        rowNumber: 2,
+        rawJson: { period: "2026-01", driver_code: "DRV-1", target_type: "profit_center", target_code: "PC-1", value: 300 },
+      },
+    ]);
+    const service = new ConfirmService(prisma, tenantContextService, auditContextService);
+
+    await service.confirm("hospital-1", "batch-1", {}, "actor-1");
+
+    expect(tx.driverValue.create).toHaveBeenCalledWith({
+      data: {
+        hospitalId: "hospital-1",
+        periodId: "period-1",
+        driverId: "drv-id-1",
+        targetCostCenterId: "cc-id-1",
+        targetProfitCenterId: null,
+        value: 700,
+        sourceFileId: "batch-1",
+      },
+    });
+    expect(tx.driverValue.create).toHaveBeenCalledWith({
+      data: {
+        hospitalId: "hospital-1",
+        periodId: "period-1",
+        driverId: "drv-id-1",
+        targetCostCenterId: null,
+        targetProfitCenterId: "pc-id-1",
+        value: 300,
+        sourceFileId: "batch-1",
+      },
+    });
+    expect(tx.costEntry.create).not.toHaveBeenCalled();
+  });
+
   it("fails the whole confirm (mid-transaction) when a row's referenced master data no longer resolves", async () => {
     const { prisma, tx, auditContextService, tenantContextService } = makeDeps();
     (prisma.uploadRowStaging.findMany as jest.Mock).mockResolvedValue([
@@ -235,6 +285,10 @@ describe("ConfirmService.rollback", () => {
       where: { id: "batch-1" },
       data: { status: "rolled_back", rolledBackAt: expect.any(Date) },
     });
+    expect(tx.allocationRun.updateMany).toHaveBeenCalledWith({
+      where: { periodId: "period-1", isStale: false },
+      data: { isStale: true, staleAt: expect.any(Date) },
+    });
     expect(auditContextService.record).toHaveBeenCalledWith({
       entity: "upload",
       action: "upload.rollback",
@@ -254,5 +308,17 @@ describe("ConfirmService.rollback", () => {
 
     expect(tx.revenueEntry.deleteMany).toHaveBeenCalledWith({ where: { sourceFileId: "batch-1" } });
     expect(tx.costEntry.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("deletes DriverValue rows when the batch type is driver", async () => {
+    const { prisma, tx, auditContextService, tenantContextService } = makeRollbackDeps();
+    (prisma.uploadBatch.findFirst as jest.Mock).mockResolvedValue({ ...confirmedCostBatch, type: "driver" });
+    const service = new ConfirmService(prisma, tenantContextService, auditContextService);
+
+    await service.rollback("hospital-1", "batch-1", "actor-1");
+
+    expect(tx.driverValue.deleteMany).toHaveBeenCalledWith({ where: { sourceFileId: "batch-1" } });
+    expect(tx.costEntry.deleteMany).not.toHaveBeenCalled();
+    expect(tx.revenueEntry.deleteMany).not.toHaveBeenCalled();
   });
 });
