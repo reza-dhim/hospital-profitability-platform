@@ -2155,7 +2155,7 @@ export interface components {
         VarianceDto: {
             absolute: string;
             /** @description Null when the prior period's value is zero. */
-            percentage?: Record<string, never>;
+            percentage: string | null;
         };
         ProfitabilitySummaryResponseDto: {
             allocationRunId: string;
@@ -2165,13 +2165,13 @@ export interface components {
             totalCost: string;
             totalGrossProfit: string;
             /** @description Null when total revenue is zero. */
-            overallMargin?: Record<string, never>;
+            overallMargin: string | null;
             /** @description vs. the trailing period's latest completed run. Null when no trailing-period comparison exists. */
-            totalRevenueVariance?: components["schemas"]["VarianceDto"];
-            totalCostVariance?: components["schemas"]["VarianceDto"];
-            totalGrossProfitVariance?: components["schemas"]["VarianceDto"];
+            totalRevenueVariance: components["schemas"]["VarianceDto"] | null;
+            totalCostVariance: components["schemas"]["VarianceDto"] | null;
+            totalGrossProfitVariance: components["schemas"]["VarianceDto"] | null;
             /** @description Null when either period's overall margin is undefined (zero revenue). */
-            overallMarginVariance?: components["schemas"]["VarianceDto"];
+            overallMarginVariance: components["schemas"]["VarianceDto"] | null;
         };
         ProfitCenterProfitabilityRowDto: {
             profitCenterId: string;
@@ -2183,9 +2183,9 @@ export interface components {
             totalCost: string;
             grossProfit: string;
             /** @description Null when revenue is zero. */
-            margin?: Record<string, never>;
+            margin: string | null;
             /** @description total_cost vs. the trailing period's latest completed run (docs/09_PROFITABILITY_ENGINE.md §5). Null when no trailing-period comparison exists. */
-            totalCostVariance?: components["schemas"]["VarianceDto"];
+            totalCostVariance: components["schemas"]["VarianceDto"] | null;
         };
         ProfitCenterProfitabilityResponseDto: {
             allocationRunId: string;
@@ -2200,13 +2200,13 @@ export interface components {
             serviceDirectCost: string;
             serviceVolume: string;
             /** @description Null when serviceVolume is zero — 'No volume this period'. */
-            unitCost?: Record<string, never>;
-            currentTariff?: Record<string, never>;
-            tariffGap?: Record<string, never>;
+            unitCost: string | null;
+            currentTariff: string | null;
+            tariffGap: string | null;
             targetMarginUsed: string;
-            recommendedTariff?: Record<string, never>;
+            recommendedTariff: string | null;
             /** @description unit_cost vs. the trailing period's latest completed run (docs/09_PROFITABILITY_ENGINE.md §5, docs/10_UNIT_COST_ENGINE.md). Null when no trailing-period comparison exists. */
-            unitCostVariance?: components["schemas"]["VarianceDto"];
+            unitCostVariance: components["schemas"]["VarianceDto"] | null;
         };
         ServiceUnitCostResponseDto: {
             allocationRunId: string;
@@ -2218,7 +2218,8 @@ export interface components {
             allocationRunId: string;
             revenue: string;
             grossProfit: string;
-            margin?: Record<string, never>;
+            /** @description Null when revenue is zero. */
+            margin: string | null;
         };
         ProfitabilityTrendResponseDto: {
             profitCenterId: string;

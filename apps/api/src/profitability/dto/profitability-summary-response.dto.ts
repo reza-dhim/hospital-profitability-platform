@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { VarianceDto } from "./variance-response.dto";
 
 export class ProfitabilitySummaryResponseDto {
@@ -8,14 +8,18 @@ export class ProfitabilitySummaryResponseDto {
   @ApiProperty() totalRevenue!: string;
   @ApiProperty() totalCost!: string;
   @ApiProperty() totalGrossProfit!: string;
-  @ApiPropertyOptional({ description: "Null when total revenue is zero." })
+  @ApiProperty({ type: String, nullable: true, description: "Null when total revenue is zero." })
   overallMargin!: string | null;
-  @ApiPropertyOptional({ type: VarianceDto, description: "vs. the trailing period's latest completed run. Null when no trailing-period comparison exists." })
+  @ApiProperty({
+    type: VarianceDto,
+    nullable: true,
+    description: "vs. the trailing period's latest completed run. Null when no trailing-period comparison exists.",
+  })
   totalRevenueVariance!: VarianceDto | null;
-  @ApiPropertyOptional({ type: VarianceDto })
+  @ApiProperty({ type: VarianceDto, nullable: true })
   totalCostVariance!: VarianceDto | null;
-  @ApiPropertyOptional({ type: VarianceDto })
+  @ApiProperty({ type: VarianceDto, nullable: true })
   totalGrossProfitVariance!: VarianceDto | null;
-  @ApiPropertyOptional({ type: VarianceDto, description: "Null when either period's overall margin is undefined (zero revenue)." })
+  @ApiProperty({ type: VarianceDto, nullable: true, description: "Null when either period's overall margin is undefined (zero revenue)." })
   overallMarginVariance!: VarianceDto | null;
 }

@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { VarianceDto } from "./variance-response.dto";
 
 export class ServiceUnitCostRowDto {
@@ -9,14 +9,15 @@ export class ServiceUnitCostRowDto {
   @ApiProperty() serviceAllocatedCost!: string;
   @ApiProperty() serviceDirectCost!: string;
   @ApiProperty() serviceVolume!: string;
-  @ApiPropertyOptional({ description: "Null when serviceVolume is zero — 'No volume this period'." })
+  @ApiProperty({ type: String, nullable: true, description: "Null when serviceVolume is zero — 'No volume this period'." })
   unitCost!: string | null;
-  @ApiPropertyOptional() currentTariff!: string | null;
-  @ApiPropertyOptional() tariffGap!: string | null;
+  @ApiProperty({ type: String, nullable: true }) currentTariff!: string | null;
+  @ApiProperty({ type: String, nullable: true }) tariffGap!: string | null;
   @ApiProperty() targetMarginUsed!: string;
-  @ApiPropertyOptional() recommendedTariff!: string | null;
-  @ApiPropertyOptional({
+  @ApiProperty({ type: String, nullable: true }) recommendedTariff!: string | null;
+  @ApiProperty({
     type: VarianceDto,
+    nullable: true,
     description: "unit_cost vs. the trailing period's latest completed run (docs/09_PROFITABILITY_ENGINE.md §5, docs/10_UNIT_COST_ENGINE.md). Null when no trailing-period comparison exists.",
   })
   unitCostVariance!: VarianceDto | null;

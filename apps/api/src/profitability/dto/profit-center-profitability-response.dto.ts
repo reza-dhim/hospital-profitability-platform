@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { VarianceDto } from "./variance-response.dto";
 
 export class ProfitCenterProfitabilityRowDto {
@@ -10,10 +10,11 @@ export class ProfitCenterProfitabilityRowDto {
   @ApiProperty() allocatedCost!: string;
   @ApiProperty() totalCost!: string;
   @ApiProperty() grossProfit!: string;
-  @ApiPropertyOptional({ description: "Null when revenue is zero." })
+  @ApiProperty({ type: String, nullable: true, description: "Null when revenue is zero." })
   margin!: string | null;
-  @ApiPropertyOptional({
+  @ApiProperty({
     type: VarianceDto,
+    nullable: true,
     description: "total_cost vs. the trailing period's latest completed run (docs/09_PROFITABILITY_ENGINE.md §5). Null when no trailing-period comparison exists.",
   })
   totalCostVariance!: VarianceDto | null;

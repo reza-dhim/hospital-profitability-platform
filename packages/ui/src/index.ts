@@ -10,4 +10,5 @@ export { Button, buttonVariants, type ButtonProps } from "./components/button";
 export { Input, type InputProps } from "./components/input";
 export { Label, type LabelProps } from "./components/label";
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./components/card";
+export { MetricCard, type MetricCardProps, type MetricCardTrend } from "./components/metric-card";
 export { cn } from "./lib/cn";

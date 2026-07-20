@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 
 export class ProfitabilityTrendPointDto {
   @ApiProperty() periodId!: string;
@@ -6,7 +6,8 @@ export class ProfitabilityTrendPointDto {
   @ApiProperty() allocationRunId!: string;
   @ApiProperty() revenue!: string;
   @ApiProperty() grossProfit!: string;
-  @ApiPropertyOptional() margin!: string | null;
+  @ApiProperty({ type: String, nullable: true, description: "Null when revenue is zero." })
+  margin!: string | null;
 }
 
 export class ProfitabilityTrendResponseDto {
