@@ -1,5 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { AuthModule } from "../auth/auth.module";
+import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { TenantMiddleware } from "./tenant.middleware";
 import { TenantResolver } from "./tenant.resolver";
 import { TenantGuard } from "./tenant.guard";
@@ -17,11 +19,20 @@ import { BranchController } from "./branch.controller";
  * identity is already known. `TenantMiddleware` is applied globally via
  * `configure()` since Nest middleware isn't itself an `APP_*` provider.
  *
+ * `PermissionsGuard` is also registered here, deliberately after
+ * `TenantGuard` in this same `providers` array — see `AuthModule`'s doc
+ * comment on why it can't live there: it needs `app.current_hospital_id`
+ * (set by `TenantGuard`) for its RLS-scoped `roles`/`role_permissions`
+ * reads to see anything. `AuthModule` is imported here (and exports
+ * `PermissionsService`) purely to make that guard's own dependency
+ * resolvable — no other coupling between the two modules.
+ *
  * `TenantContextService` itself lives in the standalone `TenantContextModule`
  * (`@Global()`, imported by `AppModule`), not here — see that module's
  * doc comment for why.
  */
 @Module({
+  imports: [AuthModule],
   controllers: [OrganizationController, HospitalController, BranchController],
   providers: [
     TenantMiddleware,
@@ -30,6 +41,7 @@ import { BranchController } from "./branch.controller";
     HospitalService,
     BranchService,
     { provide: APP_GUARD, useClass: TenantGuard },
+    { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
   exports: [TenantResolver],
 })
