@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { UploadBatchStatus, UploadType } from "@prisma/client";
 import { PaginatedResponseDto } from "../../common/dto/pagination.dto";
 
@@ -11,11 +11,15 @@ export class UploadResponseDto {
   @ApiProperty() fileName!: string;
   @ApiProperty() uploadedByUserId!: string;
   @ApiProperty({ enum: UploadBatchStatus }) status!: UploadBatchStatus;
-  @ApiPropertyOptional() rowCount?: number | null;
-  @ApiPropertyOptional() errorCount?: number | null;
+  @ApiProperty({ type: Number, nullable: true, description: "Null until parsing completes." })
+  rowCount!: number | null;
+  @ApiProperty({ type: Number, nullable: true, description: "Null until validation completes." })
+  errorCount!: number | null;
   @ApiProperty() createdAt!: Date;
-  @ApiPropertyOptional() confirmedAt?: Date | null;
-  @ApiPropertyOptional() rolledBackAt?: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: "Null until the batch is confirmed." })
+  confirmedAt!: Date | null;
+  @ApiProperty({ type: Date, nullable: true, description: "Null unless the batch was rolled back." })
+  rolledBackAt!: Date | null;
 }
 
 export class PaginatedUploadResponseDto extends PaginatedResponseDto<UploadResponseDto> {

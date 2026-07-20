@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrencyIDR, formatPercent, trendFromVariance } from "./format";
+import { formatCurrencyIDR, formatDateTime, formatPercent, trendFromVariance } from "./format";
 
 describe("formatCurrencyIDR", () => {
   it("formats a positive amount as Indonesian Rupiah with no decimals", () => {
@@ -18,6 +18,16 @@ describe("formatPercent", () => {
 
   it("respects a custom fraction-digit count", () => {
     expect(formatPercent("15.2345", 2)).toBe("15.23%");
+  });
+});
+
+describe("formatDateTime", () => {
+  it("formats an ISO string as an Indonesian medium date + short time", () => {
+    expect(formatDateTime("2026-01-15T08:30:00.000Z")).toMatch(/2026/);
+  });
+
+  it("accepts a Date instance directly", () => {
+    expect(formatDateTime(new Date("2026-01-15T08:30:00.000Z"))).toMatch(/2026/);
   });
 });
 

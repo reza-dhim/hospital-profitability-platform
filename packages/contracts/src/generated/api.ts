@@ -2067,12 +2067,22 @@ export interface components {
             uploadedByUserId: string;
             /** @enum {string} */
             status: "staged" | "validating" | "validated" | "confirmed" | "rolled_back" | "failed";
-            rowCount?: Record<string, never>;
-            errorCount?: Record<string, never>;
+            /** @description Null until parsing completes. */
+            rowCount: number | null;
+            /** @description Null until validation completes. */
+            errorCount: number | null;
             /** Format: date-time */
             createdAt: string;
-            confirmedAt?: Record<string, never>;
-            rolledBackAt?: Record<string, never>;
+            /**
+             * Format: date-time
+             * @description Null until the batch is confirmed.
+             */
+            confirmedAt: string | null;
+            /**
+             * Format: date-time
+             * @description Null unless the batch was rolled back.
+             */
+            rolledBackAt: string | null;
         };
         PaginatedUploadResponseDto: {
             meta: components["schemas"]["PaginationMetaDto"];
@@ -2086,8 +2096,8 @@ export interface components {
         };
         ValidationErrorDto: {
             /** @description Null for a file-level structural error (e.g. E_TEMPLATE_VERSION). */
-            rowNumber?: Record<string, never>;
-            column?: Record<string, never>;
+            rowNumber: number | null;
+            column: string | null;
             /** @example E_INVALID_COST_CENTER */
             code: string;
             /** @enum {string} */

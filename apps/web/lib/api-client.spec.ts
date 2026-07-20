@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiRequest, ApiRequestError, configureApiClient } from "./api-client";
+import { apiRequest, apiRequestFile, ApiRequestError, configureApiClient } from "./api-client";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -32,6 +32,20 @@ describe("apiRequest", () => {
     expect(init.credentials).toBe("include");
     expect(init.headers.Authorization).toBe("Bearer access-token-1");
     expect(init.body).toBe(JSON.stringify({ periodId: "p-1" }));
+  });
+
+  it("sends a FormData body as-is, without a Content-Type header, so the browser sets the multipart boundary", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { id: "batch-1" }));
+    const form = new FormData();
+    form.append("periodId", "p-1");
+    form.append("file", new Blob(["data"]), "cost.xlsx");
+
+    await apiRequest("/uploads/cost", { method: "POST", body: form });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(init.body).toBe(form);
+    expect(init.headers["Content-Type"]).toBeUndefined();
+    expect(init.headers.Authorization).toBe("Bearer access-token-1");
   });
 
   it("serializes query params, omitting undefined values", async () => {
@@ -137,5 +151,53 @@ describe("apiRequest", () => {
     expect(refreshCallCount).toBe(1);
     expect(resultA).toBeDefined();
     expect(resultB).toBeDefined();
+  });
+});
+
+describe("apiRequestFile", () => {
+  let getAccessToken: ReturnType<typeof vi.fn<() => string | null>>;
+  let mockFetch: ReturnType<typeof vi.fn<typeof fetch>>;
+
+  beforeEach(() => {
+    getAccessToken = vi.fn(() => "access-token-1");
+    configureApiClient({ getAccessToken, setAccessToken: vi.fn(), onUnauthenticated: vi.fn() });
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+  });
+
+  it("returns the response body as a Blob and reads the filename from Content-Disposition", async () => {
+    mockFetch.mockResolvedValue(
+      new Response("xlsx bytes", {
+        status: 200,
+        headers: { "Content-Disposition": 'attachment; filename="cost-template.xlsx"' },
+      })
+    );
+
+    const result = await apiRequestFile("/templates/cost/download", "fallback.xlsx");
+
+    expect(result.fileName).toBe("cost-template.xlsx");
+    expect(await result.blob.text()).toBe("xlsx bytes");
+  });
+
+  it("falls back to the given filename when Content-Disposition is missing", async () => {
+    mockFetch.mockResolvedValue(new Response(new Blob(["data"]), { status: 200 }));
+
+    const result = await apiRequestFile("/templates/cost/download", "fallback.xlsx");
+
+    expect(result.fileName).toBe("fallback.xlsx");
+  });
+
+  it("throws ApiRequestError on a non-2xx response instead of returning a blob", async () => {
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: "NOT_FOUND", message: "No template.", traceId: "t" } }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const error = await apiRequestFile("/templates/cost/download", "fallback.xlsx").catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiRequestError);
+    expect((error as ApiRequestError).code).toBe("NOT_FOUND");
   });
 });

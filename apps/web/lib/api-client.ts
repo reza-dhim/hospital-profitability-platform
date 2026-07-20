@@ -91,7 +91,12 @@ async function parseErrorBody(response: Response): Promise<ApiErrorBody> {
 }
 
 async function rawRequest(path: string, options: ApiRequestOptions): Promise<Response> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isFormData = options.body instanceof FormData;
+  const headers: Record<string, string> = {};
+  // A FormData body's multipart boundary is set by the browser only if
+  // Content-Type is left unset — declaring it here (even to the "right"
+  // value) drops the boundary param and breaks server-side multipart parsing.
+  if (!isFormData) headers["Content-Type"] = "application/json";
   const token = getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -99,7 +104,7 @@ async function rawRequest(path: string, options: ApiRequestOptions): Promise<Res
     method: options.method ?? "GET",
     headers,
     credentials: "include",
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: options.body === undefined ? undefined : isFormData ? (options.body as FormData) : JSON.stringify(options.body),
   });
 }
 
@@ -125,7 +130,7 @@ function refreshAccessToken(): Promise<boolean> {
   return refreshPromise;
 }
 
-export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+async function requestWithAuthRetry(path: string, options: ApiRequestOptions): Promise<Response> {
   let response = await rawRequest(path, options);
 
   if (response.status === 401 && !options.skipAuthRetry) {
@@ -139,6 +144,12 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     onUnauthenticated();
   }
 
+  return response;
+}
+
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const response = await requestWithAuthRetry(path, options);
+
   if (!response.ok) {
     const error = await parseErrorBody(response);
     throw new ApiRequestError(response.status, error);
@@ -146,4 +157,32 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string;
+}
+
+function fileNameFromContentDisposition(response: Response, fallback: string): string {
+  const disposition = response.headers.get("Content-Disposition");
+  const match = disposition ? /filename="?([^";]+)"?/.exec(disposition) : null;
+  return match?.[1] ?? fallback;
+}
+
+/** For binary responses (e.g. `GET /templates/:type/download`) — same auth/refresh handling as `apiRequest`, but reads the body as a `Blob` instead of JSON. */
+export async function apiRequestFile(
+  path: string,
+  fallbackFileName: string,
+  options: ApiRequestOptions = {}
+): Promise<DownloadedFile> {
+  const response = await requestWithAuthRetry(path, options);
+
+  if (!response.ok) {
+    const error = await parseErrorBody(response);
+    throw new ApiRequestError(response.status, error);
+  }
+
+  const blob = await response.blob();
+  return { blob, fileName: fileNameFromContentDisposition(response, fallbackFileName) };
 }

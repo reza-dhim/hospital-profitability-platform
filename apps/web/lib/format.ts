@@ -19,6 +19,15 @@ export function formatPercent(value: string | number, fractionDigits = 1): strin
   return `${Number(value).toFixed(fractionDigits)}%`;
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+export function formatDateTime(value: string | Date): string {
+  return dateTimeFormatter.format(typeof value === "string" ? new Date(value) : value);
+}
+
 export interface VarianceLike {
   absolute: string;
   percentage: string | null;

@@ -21,6 +21,7 @@ Validation runs in three ordered passes; a failure in an earlier pass short-circ
 | `E_INVALID_TYPE` | Row-level | error | Cell value cannot be parsed as expected type (number/date/enum). |
 | `E_INVALID_PERIOD` | Row-level | error | Period does not exist or is not `open` (`01_BUSINESS_RULES.md` §9). |
 | `E_INVALID_COST_CENTER` | Row-level | error | `cost_center` code not found in this hospital's master data. |
+| `E_INVALID_COA_ACCOUNT` | Row-level | error | `coa_account` code not found — needed by the Cost template's `coa_account_id` (`DATABASE_SCHEMA.md`), missed from this table since Sprint 4 despite being implemented following the same `E_INVALID_{ENTITY}` convention as its siblings. |
 | `E_INVALID_PROFIT_CENTER` | Row-level | error | `profit_center` code not found. |
 | `E_INVALID_DRIVER` | Row-level | error | `driver` code not found. |
 | `E_INVALID_SERVICE` | Row-level | error | `service` code not found. |

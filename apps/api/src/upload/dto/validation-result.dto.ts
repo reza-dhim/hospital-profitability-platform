@@ -1,13 +1,13 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { UploadBatchStatus, ValidationSeverity } from "@prisma/client";
 import { PaginationMetaDto } from "../../common/dto/pagination.dto";
 
 export class ValidationErrorDto {
-  @ApiPropertyOptional({ description: "Null for a file-level structural error (e.g. E_TEMPLATE_VERSION)." })
+  @ApiProperty({ type: Number, nullable: true, description: "Null for a file-level structural error (e.g. E_TEMPLATE_VERSION)." })
   rowNumber!: number | null;
 
-  @ApiPropertyOptional()
-  column?: string | null;
+  @ApiProperty({ type: String, nullable: true })
+  column!: string | null;
 
   @ApiProperty({ example: "E_INVALID_COST_CENTER" })
   code!: string;
