@@ -8,4 +8,5 @@ module.exports = {
   testRegex: ".*\\.integration-spec\\.ts$",
   moduleFileExtensions: ["js", "json", "ts"],
   testTimeout: 120000,
+  maxWorkers: 2,
 };
