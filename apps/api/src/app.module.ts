@@ -13,6 +13,7 @@ import { TenancyModule } from "./tenancy/tenancy.module";
 import { RbacModule } from "./rbac/rbac.module";
 import { MasterDataModule } from "./master-data/master-data.module";
 import { PeriodModule } from "./period/period.module";
+import { TargetMarginModule } from "./target-margin/target-margin.module";
 import { UploadModule } from "./upload/upload.module";
 import { AllocationModule } from "./allocation/allocation.module";
 import { ProfitabilityModule } from "./profitability/profitability.module";
@@ -40,6 +41,7 @@ import { AuditModule } from "./audit/audit.module";
     RbacModule,
     MasterDataModule,
     PeriodModule,
+    TargetMarginModule,
     UploadModule,
     AllocationModule,
     ProfitabilityModule,

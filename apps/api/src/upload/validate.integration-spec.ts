@@ -82,7 +82,7 @@ describe("Upload validation (RLS)", () => {
         passwordHash: "irrelevant",
       },
     });
-    await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "CC-1", name: "Cost Center 1", type: "support" } });
+    await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "CC-1", name: "Cost Center 1", type: "indirect" } });
     await ownerPrisma.coaAccount.create({ data: { hospitalId: hospital.id, code: "COA-1", name: "Account 1", category: "expense" } });
     return { organization, hospital, user };
   }

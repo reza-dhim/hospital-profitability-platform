@@ -1,6 +1,7 @@
 import { AllocationEngineService } from "./allocation-engine.service";
 import { TenantContextService } from "../tenancy/tenant-context.service";
 import type { PrismaService } from "../prisma/prisma.service";
+import type { AllocationQueueService } from "../queue/allocation-queue.service";
 
 const payload = { allocationRunId: "run-1", hospitalId: "hospital-1", organizationId: "org-1", actorUserId: "actor-1" };
 
@@ -29,14 +30,16 @@ function makeDeps() {
     $transaction: jest.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
   } as unknown as PrismaService;
 
-  return { prisma, tx, tenantContextService: new TenantContextService() };
+  const allocationQueueService = { enqueue: jest.fn().mockResolvedValue(undefined) } as unknown as AllocationQueueService;
+
+  return { prisma, tx, tenantContextService: new TenantContextService(), allocationQueueService };
 }
 
 describe("AllocationEngineService.processRun", () => {
   it("is a no-op when the run is not in 'draft' status", async () => {
-    const { prisma, tx, tenantContextService } = makeDeps();
+    const { prisma, tx, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRun.findFirst as jest.Mock).mockResolvedValue({ ...draftRun, status: "completed" });
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -45,21 +48,21 @@ describe("AllocationEngineService.processRun", () => {
   });
 
   it("is a no-op when the run doesn't exist for this hospital", async () => {
-    const { prisma, tenantContextService } = makeDeps();
+    const { prisma, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRun.findFirst as jest.Mock).mockResolvedValue(null);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await expect(service.processRun(payload)).resolves.toBeUndefined();
     expect(prisma.allocationRule.findMany).not.toHaveBeenCalled();
   });
 
   it("fails the run when the period is not open", async () => {
-    const { prisma, tenantContextService } = makeDeps();
+    const { prisma, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRun.findFirst as jest.Mock).mockResolvedValue({
       ...draftRun,
       period: { ...draftRun.period, status: "locked" },
     });
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -68,12 +71,13 @@ describe("AllocationEngineService.processRun", () => {
       data: expect.objectContaining({ status: "failed", errorMessage: expect.stringContaining("not open") }),
     });
     expect(prisma.allocationRule.findMany).not.toHaveBeenCalled();
+    expect(allocationQueueService.enqueue).not.toHaveBeenCalled();
   });
 
   it("fails the run when no allocation rules are configured for this method/period", async () => {
-    const { prisma, tenantContextService } = makeDeps();
+    const { prisma, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRule.findMany as jest.Mock).mockResolvedValue([]);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -84,13 +88,13 @@ describe("AllocationEngineService.processRun", () => {
   });
 
   it("fails the run with a clear message when allocation_rules.priority has a duplicate (CycleDetectedError)", async () => {
-    const { prisma, tenantContextService } = makeDeps();
+    const { prisma, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRun.findFirst as jest.Mock).mockResolvedValue({ ...draftRun, method: "step_down" });
     (prisma.allocationRule.findMany as jest.Mock).mockResolvedValue([
       { costCenterId: "HRD", driverId: "EMP", priority: 1 },
       { costCenterId: "IT", driverId: "DEVICE", priority: 1 },
     ]);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -107,7 +111,7 @@ describe("AllocationEngineService.processRun", () => {
    * RI = 10,000,000 * 300/1000 = 3,000,000.
    */
   it("runs Direct allocation end-to-end against mocked Prisma data and persists the exact hand-computed amounts", async () => {
-    const { prisma, tx, tenantContextService } = makeDeps();
+    const { prisma, tx, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRule.findMany as jest.Mock).mockResolvedValue([
       { costCenterId: "LAUNDRY", driverId: "KG_LAUNDRY", priority: 1 },
     ]);
@@ -117,7 +121,7 @@ describe("AllocationEngineService.processRun", () => {
       { driverId: "KG_LAUNDRY", targetCostCenterId: null, targetProfitCenterId: "PC-RJ", value: 700 },
       { driverId: "KG_LAUNDRY", targetCostCenterId: null, targetProfitCenterId: "PC-RI", value: 300 },
     ]);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -137,6 +141,12 @@ describe("AllocationEngineService.processRun", () => {
       where: { id: "run-1" },
       data: { status: "completed", finishedAt: expect.any(Date) },
     });
+    expect(allocationQueueService.enqueue).toHaveBeenCalledWith("profitability.compute", {
+      allocationRunId: "run-1",
+      hospitalId: "hospital-1",
+      organizationId: "org-1",
+      actorUserId: "actor-1",
+    });
   });
 
   /**
@@ -148,7 +158,7 @@ describe("AllocationEngineService.processRun", () => {
    * 40,000,000 + 28,000,000 = 68,000,000.
    */
   it("runs Step-Down allocation end-to-end and persists the exact docs §4 worked-example amounts", async () => {
-    const { prisma, tx, tenantContextService } = makeDeps();
+    const { prisma, tx, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRun.findFirst as jest.Mock).mockResolvedValue({ ...draftRun, method: "step_down" });
     (prisma.allocationRule.findMany as jest.Mock).mockResolvedValue([
       { costCenterId: "HRD", driverId: "EMP_COUNT", priority: 1 },
@@ -166,7 +176,7 @@ describe("AllocationEngineService.processRun", () => {
       { driverId: "DEVICE_COUNT", targetCostCenterId: null, targetProfitCenterId: "RJ", value: 60 },
       { driverId: "DEVICE_COUNT", targetCostCenterId: null, targetProfitCenterId: "RI", value: 40 },
     ]);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 
@@ -183,17 +193,18 @@ describe("AllocationEngineService.processRun", () => {
       where: { id: "run-1" },
       data: { status: "completed", finishedAt: expect.any(Date) },
     });
+    expect(allocationQueueService.enqueue).toHaveBeenCalledWith("profitability.compute", expect.objectContaining({ allocationRunId: "run-1" }));
   });
 
   it("persists W_DRIVER_ZERO warnings on the run when a driver has zero total value", async () => {
-    const { prisma, tx, tenantContextService } = makeDeps();
+    const { prisma, tx, tenantContextService, allocationQueueService } = makeDeps();
     (prisma.allocationRule.findMany as jest.Mock).mockResolvedValue([
       { costCenterId: "KITCHEN", driverId: "MEAL_COUNT", priority: 1 },
     ]);
     (prisma.costEntry.groupBy as jest.Mock).mockResolvedValue([{ costCenterId: "KITCHEN", _sum: { nominal: 10_000_000 } }]);
     (prisma.profitCenter.findMany as jest.Mock).mockResolvedValue([{ id: "PC-A" }, { id: "PC-B" }]);
     (prisma.driverValue.findMany as jest.Mock).mockResolvedValue([]);
-    const service = new AllocationEngineService(prisma, tenantContextService);
+    const service = new AllocationEngineService(prisma, tenantContextService, allocationQueueService);
 
     await service.processRun(payload);
 

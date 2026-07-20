@@ -85,10 +85,10 @@ describe("Upload confirm/rollback (RLS + real all-or-nothing)", () => {
       },
     });
     const costCenter1 = await ownerPrisma.costCenter.create({
-      data: { hospitalId: hospital.id, code: "CC-1", name: "Cost Center 1", type: "support" },
+      data: { hospitalId: hospital.id, code: "CC-1", name: "Cost Center 1", type: "indirect" },
     });
     const costCenter2 = await ownerPrisma.costCenter.create({
-      data: { hospitalId: hospital.id, code: "CC-2", name: "Cost Center 2", type: "support" },
+      data: { hospitalId: hospital.id, code: "CC-2", name: "Cost Center 2", type: "indirect" },
     });
     const coaAccount = await ownerPrisma.coaAccount.create({
       data: { hospitalId: hospital.id, code: "COA-1", name: "Account 1", category: "expense" },

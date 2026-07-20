@@ -88,10 +88,10 @@ describe("Allocation run persistence (RLS)", () => {
       },
     });
     const sourceCostCenter = await ownerPrisma.costCenter.create({
-      data: { hospitalId: hospital.id, code: "LAUNDRY", name: "Laundry", type: "support" },
+      data: { hospitalId: hospital.id, code: "LAUNDRY", name: "Laundry", type: "indirect" },
     });
     const targetCostCenter = await ownerPrisma.costCenter.create({
-      data: { hospitalId: hospital.id, code: "IT", name: "IT Department", type: "support" },
+      data: { hospitalId: hospital.id, code: "IT", name: "IT Department", type: "indirect" },
     });
     const targetProfitCenter = await ownerPrisma.profitCenter.create({
       data: { hospitalId: hospital.id, code: "RJ", name: "Rawat Jalan" },

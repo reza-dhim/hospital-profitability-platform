@@ -151,7 +151,7 @@ describe("Driver value upload pipeline (RLS + real MinIO)", () => {
       data: { hospitalId: hospital.id, code: "EMP-COUNT", name: "Employee Count", unit: "people" },
     });
     const costCenter = await ownerPrisma.costCenter.create({
-      data: { hospitalId: hospital.id, code: "IT", name: "IT Department", type: "support" },
+      data: { hospitalId: hospital.id, code: "IT", name: "IT Department", type: "indirect" },
     });
     const profitCenter = await ownerPrisma.profitCenter.create({
       data: { hospitalId: hospital.id, code: "RJ", name: "Rawat Jalan" },

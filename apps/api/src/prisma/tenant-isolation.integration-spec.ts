@@ -94,10 +94,10 @@ describe("Tenant isolation (RLS)", () => {
     const tenantB = await seedHospital();
 
     const costCenterA = await ownerPrisma.costCenter.create({
-      data: { hospitalId: tenantA.hospital.id, code: "CC-A", name: "Cost Center A", type: "support" },
+      data: { hospitalId: tenantA.hospital.id, code: "CC-A", name: "Cost Center A", type: "indirect" },
     });
     await ownerPrisma.costCenter.create({
-      data: { hospitalId: tenantB.hospital.id, code: "CC-B", name: "Cost Center B", type: "support" },
+      data: { hospitalId: tenantB.hospital.id, code: "CC-B", name: "Cost Center B", type: "indirect" },
     });
 
     const rowsAsA = (await runAs(tenantA.organization.id, tenantA.hospital.id, () =>
@@ -118,7 +118,7 @@ describe("Tenant isolation (RLS)", () => {
     const tenantA = await seedHospital();
     const tenantB = await seedHospital();
     const costCenterB = await ownerPrisma.costCenter.create({
-      data: { hospitalId: tenantB.hospital.id, code: "CC-B2", name: "Cost Center B2", type: "support" },
+      data: { hospitalId: tenantB.hospital.id, code: "CC-B2", name: "Cost Center B2", type: "indirect" },
     });
 
     await expect(

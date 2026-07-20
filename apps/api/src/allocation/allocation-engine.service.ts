@@ -13,6 +13,7 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { TenantContextService } from "../tenancy/tenant-context.service";
 import { tenantSessionSql } from "../prisma/tenant-session.sql";
+import { AllocationQueueService } from "../queue/allocation-queue.service";
 
 export interface AllocationRunJobData {
   allocationRunId: string;
@@ -45,7 +46,8 @@ export class AllocationEngineService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly tenantContextService: TenantContextService
+    private readonly tenantContextService: TenantContextService,
+    private readonly allocationQueueService: AllocationQueueService
   ) {}
 
   processRun(payload: AllocationRunJobData): Promise<void> {
@@ -175,6 +177,18 @@ export class AllocationEngineService {
     } finally {
       this.tenantContextService.setManagedTransaction(false);
     }
+
+    // docs/09_PROFITABILITY_ENGINE.md §3: profitability computation is the
+    // next stage of the same pipeline, triggered by this run reaching
+    // `completed` — not run inline here, so a slow/failing profitability
+    // computation can never hold up or fail the allocation transaction
+    // itself.
+    await this.allocationQueueService.enqueue("profitability.compute", {
+      allocationRunId: run.id,
+      hospitalId: payload.hospitalId,
+      organizationId: payload.organizationId,
+      actorUserId: payload.actorUserId,
+    });
   }
 
   private async failRun(id: string, message: string): Promise<void> {

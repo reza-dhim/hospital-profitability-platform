@@ -69,6 +69,7 @@ model Hospital {
   revenueEntries   RevenueEntry[]
   driverValues     DriverValue[]
   allocationRuns   AllocationRun[]
+  targetMargins    TargetMargin[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -180,6 +181,7 @@ model User {
   periodsUpdated          Period[]           @relation("PeriodUpdatedBy")
   uploadBatchesUploaded   UploadBatch[]      @relation("UploadBatchUploadedBy")
   allocationRunsCreated   AllocationRun[]    @relation("AllocationRunCreatedBy")
+  targetMarginsSet        TargetMargin[]     @relation("TargetMarginSetBy")
 
   auditLogs AuditLog[]
 
@@ -328,6 +330,21 @@ enum AllocationMethod {
   @@map("allocation_method")
 }
 
+/// Sprint 6 sub-task 0 (docs/09_PROFITABILITY_ENGINE.md §2): distinguishes
+/// cost centers whose cost only ever flows out through the allocation graph
+/// (`indirect`, e.g. HRD, IT) from ones directly incurred by a profit center
+/// itself (`direct`, e.g. a lab's own reagent cost) and summed straight into
+/// that profit center's `direct_cost` instead. Was an unvalidated free
+/// string through Sprint 3/5 (all existing seed data used `"support"`,
+/// migrated to `indirect`) — tightened here the same way
+/// `AllocationRule.method` was in Sprint 5.
+enum CostCenterType {
+  direct
+  indirect
+
+  @@map("cost_center_type")
+}
+
 /// Period lifecycle, docs/25_PERIOD_CLOSING.md §1: draft -> open -> locked ->
 /// closed, with a reopen action (locked|closed -> open) gated separately
 /// (`period_closing.reopen`, System Admin only) from generate/open/lock/close
@@ -346,7 +363,13 @@ model CostCenter {
   hospitalId      String           @map("hospital_id")
   code            String
   name            String
-  type            String
+  type            CostCenterType
+  /// Set exactly when `type = direct` (DB `CHECK`, mirroring the
+  /// driver_values/allocated_costs polymorphic-target pattern) — a direct
+  /// cost center is inherently "owned" by exactly one profit center,
+  /// configured once at master-data time rather than tagged per
+  /// `cost_entries` row (docs/09_PROFITABILITY_ENGINE.md §2).
+  profitCenterId  String?          @map("profit_center_id")
   status          MasterDataStatus @default(active)
   createdByUserId String?          @map("created_by_user_id")
   updatedByUserId String?          @map("updated_by_user_id")
@@ -355,6 +378,7 @@ model CostCenter {
   deletedAt       DateTime?        @map("deleted_at")
 
   hospital               Hospital         @relation(fields: [hospitalId], references: [id])
+  profitCenter           ProfitCenter?    @relation(fields: [profitCenterId], references: [id])
   allocationRules        AllocationRule[]
   employees              Employee[]
   assets                 Asset[]
@@ -383,13 +407,15 @@ model ProfitCenter {
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
 
-  hospital             Hospital        @relation(fields: [hospitalId], references: [id])
+  hospital             Hospital              @relation(fields: [hospitalId], references: [id])
   services             Service[]
   revenueEntries       RevenueEntry[]
+  directCostCenters    CostCenter[]
   driverValuesAsTarget DriverValue[]
   allocatedCosts       AllocatedCost[]
-  createdBy            User?           @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy            User?           @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  profitabilityResults ProfitabilityResult[]
+  createdBy            User?                 @relation("ProfitCenterCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy            User?                 @relation("ProfitCenterUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -516,12 +542,13 @@ model Service {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  hospital       Hospital       @relation(fields: [hospitalId], references: [id])
-  profitCenter   ProfitCenter   @relation(fields: [profitCenterId], references: [id])
-  tariffs        Tariff[]
-  revenueEntries RevenueEntry[]
-  createdBy      User?          @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy      User?          @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital         Hospital          @relation(fields: [hospitalId], references: [id])
+  profitCenter     ProfitCenter      @relation(fields: [profitCenterId], references: [id])
+  tariffs          Tariff[]
+  revenueEntries   RevenueEntry[]
+  serviceUnitCosts ServiceUnitCost[]
+  createdBy        User?             @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy        User?             @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -729,10 +756,51 @@ model Period {
   revenueEntries RevenueEntry[]
   driverValues   DriverValue[]
   allocationRuns AllocationRun[]
+  targetMargins  TargetMargin[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
   @@map("periods")
+}
+
+/// docs/02_DOMAIN_MODEL.md `target_margins`, docs/01_BUSINESS_RULES.md §6.
+/// `scope_id` is null exactly when `scope_type = hospital` (DB `CHECK`,
+/// same polymorphic-shape convention as `driver_values`/`allocated_costs`).
+enum TargetMarginScopeType {
+  hospital
+  profit_center
+  service
+
+  @@map("target_margin_scope_type")
+}
+
+/// Append-only history (Sprint 6 sub-task 0 design decision — carry-forward
+/// resolution, mirroring `Tariff`'s active/superseded pattern rather than
+/// `AllocationRule`'s exact-period-match): resolving the applicable target
+/// margin for a given period picks the most recent row per scope level
+/// whose `effectivePeriod.startDate <= ` the target period's, not an exact
+/// `effective_period_id` match — so a margin set once keeps applying to
+/// every later period until a newer row supersedes it, per
+/// `01_BUSINESS_RULES.md` §6 ("takes effect from the next allocation run
+/// onward"). No `update`/`status` column — a "change" is always a new row;
+/// `set_by_user_id` + `created_at` are the audit trail
+/// (`01_BUSINESS_RULES.md` §6: "every change is audit-logged").
+model TargetMargin {
+  id                String                @id @default(uuid())
+  hospitalId        String                @map("hospital_id")
+  scopeType         TargetMarginScopeType @map("scope_type")
+  scopeId           String?               @map("scope_id")
+  targetMargin      Decimal               @map("target_margin") @db.Decimal(5, 2)
+  effectivePeriodId String                @map("effective_period_id")
+  setByUserId       String                @map("set_by_user_id")
+  createdAt         DateTime              @default(now()) @map("created_at")
+
+  hospital        Hospital @relation(fields: [hospitalId], references: [id])
+  effectivePeriod Period   @relation(fields: [effectivePeriodId], references: [id])
+  setBy           User     @relation("TargetMarginSetBy", fields: [setByUserId], references: [id])
+
+  @@index([hospitalId, scopeType, scopeId])
+  @@map("target_margins")
 }
 
 /// Upload Pipeline (docs/02_DOMAIN_MODEL.md §2 `upload_batches`,
@@ -947,10 +1015,16 @@ model DriverValue {
 
 // --- Calculation (docs/02_DOMAIN_MODEL.md §1, DATABASE_SCHEMA.md) ----------
 
+/// `completed_with_errors` (Sprint 6 sub-task 1, docs/09_PROFITABILITY_ENGINE.md
+/// §3): the allocation math itself succeeded and `allocated_costs` are valid
+/// and preserved, but the chained `profitability.compute` stage failed — a
+/// distinct terminal state from `failed` (allocation math itself failed, no
+/// allocated_costs at all) and from `completed` (both stages succeeded).
 enum AllocationRunStatus {
   draft
   running
   completed
+  completed_with_errors
   failed
 
   @@map("allocation_run_status")
@@ -991,12 +1065,14 @@ model AllocationRun {
   createdByUserId String              @map("created_by_user_id")
   createdAt       DateTime            @default(now()) @map("created_at")
 
-  hospital       Hospital        @relation(fields: [hospitalId], references: [id])
-  period         Period          @relation(fields: [periodId], references: [id])
-  createdBy      User            @relation("AllocationRunCreatedBy", fields: [createdByUserId], references: [id])
-  supersedesRun  AllocationRun?  @relation("AllocationRunSupersedes", fields: [supersedesRunId], references: [id])
-  supersededBy   AllocationRun?  @relation("AllocationRunSupersedes")
-  allocatedCosts AllocatedCost[]
+  hospital             Hospital              @relation(fields: [hospitalId], references: [id])
+  period               Period                @relation(fields: [periodId], references: [id])
+  createdBy            User                  @relation("AllocationRunCreatedBy", fields: [createdByUserId], references: [id])
+  supersedesRun        AllocationRun?        @relation("AllocationRunSupersedes", fields: [supersedesRunId], references: [id])
+  supersededBy         AllocationRun?        @relation("AllocationRunSupersedes")
+  allocatedCosts       AllocatedCost[]
+  profitabilityResults ProfitabilityResult[]
+  serviceUnitCosts     ServiceUnitCost[]
 
   @@index([hospitalId, periodId])
   @@map("allocation_runs")
@@ -1030,6 +1106,72 @@ model AllocatedCost {
 
   @@index([allocationRunId])
   @@map("allocated_costs")
+}
+
+/// docs/09_PROFITABILITY_ENGINE.md §2, matches DATABASE_SCHEMA.md's literal
+/// `profitability_results` field list — profit-center grain only (no
+/// `service_id`; see the Sprint 6 sub-task 0 planning note in
+/// `10_UNIT_COST_ENGINE.md` §1 for why service-level unit cost lives in a
+/// sibling table instead). One row per profit center per run, written once
+/// by the `profitability.compute` job chained after `allocation_run`
+/// reaches `completed` — never recomputed in place; a `completed_with_errors`
+/// run may have zero or partial rows. No `hospital_id` of its own (EXISTS-join
+/// RLS against `allocation_runs`, same shape as `allocated_costs`).
+model ProfitabilityResult {
+  id              String   @id @default(uuid())
+  allocationRunId String   @map("allocation_run_id")
+  profitCenterId  String   @map("profit_center_id")
+  revenue         Decimal  @db.Decimal(16, 2)
+  directCost      Decimal  @map("direct_cost") @db.Decimal(16, 2)
+  allocatedCost   Decimal  @map("allocated_cost") @db.Decimal(16, 2)
+  totalCost       Decimal  @map("total_cost") @db.Decimal(16, 2)
+  grossProfit     Decimal  @map("gross_profit") @db.Decimal(16, 2)
+  /// Percentage scale (37.3 means 37.3%), null when revenue = 0
+  /// (docs/09_PROFITABILITY_ENGINE.md §2 guard).
+  margin          Decimal? @db.Decimal(9, 4)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  allocationRun AllocationRun @relation(fields: [allocationRunId], references: [id])
+  profitCenter  ProfitCenter  @relation(fields: [profitCenterId], references: [id])
+
+  @@index([allocationRunId])
+  @@map("profitability_results")
+}
+
+/// docs/10_UNIT_COST_ENGINE.md §1: not in DATABASE_SCHEMA.md's literal
+/// tables (that doc explicitly leaves the profitability-vs-unit-cost table
+/// split to engineering) — a sibling table, not extra columns on
+/// `ProfitabilityResult`, since that table's grain is profit-center-only.
+/// Written in the same `profitability.compute` job / same transaction as
+/// `ProfitabilityResult` (Sprint 6 sub-task 2). `serviceDirectCost` is
+/// always 0 for now — Sprint 6 sub-task 0 planning decision: `medical_activities`
+/// (needed for the documented bmhp/room/staff cost breakdown) is deferred to
+/// Sprint 8, where its `doctor_id` capture actually earns its keep.
+/// `currentTariff`/`targetMarginUsed` are point-in-time snapshots of the
+/// inputs used, not live references — a later tariff or target-margin
+/// change must not retroactively alter an already-computed run's figures.
+model ServiceUnitCost {
+  id                   String   @id @default(uuid())
+  allocationRunId      String   @map("allocation_run_id")
+  serviceId            String   @map("service_id")
+  serviceAllocatedCost Decimal  @map("service_allocated_cost") @db.Decimal(16, 2)
+  serviceDirectCost    Decimal  @map("service_direct_cost") @db.Decimal(16, 2)
+  serviceVolume        Decimal  @map("service_volume") @db.Decimal(14, 2)
+  /// Null when serviceVolume = 0 (docs/10_UNIT_COST_ENGINE.md §2 guard).
+  unitCost             Decimal? @map("unit_cost") @db.Decimal(16, 4)
+  currentTariff        Decimal? @map("current_tariff") @db.Decimal(14, 2)
+  tariffGap            Decimal? @map("tariff_gap") @db.Decimal(14, 4)
+  /// Percentage scale (15 means 15%), the resolved value actually used —
+  /// see TargetMarginService's class doc comment for the unit convention.
+  targetMarginUsed     Decimal  @map("target_margin_used") @db.Decimal(9, 4)
+  recommendedTariff    Decimal? @map("recommended_tariff") @db.Decimal(16, 4)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  allocationRun AllocationRun @relation(fields: [allocationRunId], references: [id])
+  service       Service       @relation(fields: [serviceId], references: [id])
+
+  @@index([allocationRunId])
+  @@map("service_unit_costs")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -

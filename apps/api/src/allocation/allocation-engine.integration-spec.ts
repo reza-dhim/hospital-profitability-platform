@@ -13,20 +13,25 @@ import { PeriodService } from "../period/period.service";
 import { AllocationRunService } from "./allocation-run.service";
 import { AllocationEngineService } from "./allocation-engine.service";
 import { AllocationEngineProcessor } from "./allocation-engine.processor";
+import { ProfitabilityEngineService } from "../profitability/profitability-engine.service";
+import { TargetMarginService } from "../target-margin/target-margin.service";
 import { AllocationQueueService } from "../queue/allocation-queue.service";
 import { ALLOCATION_QUEUE_NAME } from "../queue/queue.constants";
 
 /**
- * Sprint 5 sub-task 4: proves the full wiring end-to-end against real
- * Postgres + real Redis — `POST /allocation-runs`-equivalent
- * (`AllocationRunService.create`) enqueues a real BullMQ job, a real
- * `AllocationEngineProcessor`/`AllocationEngineService` worker picks it up,
- * runs the actual Step-Down algorithm (`@hpp/domain`) against real
- * `cost_entries`/`allocation_rules`/`driver_values` rows, and persists
- * `allocated_costs` that match docs/08_COST_ALLOCATION_ENGINE.md §4's
- * worked example exactly — the same numbers already hand-verified in
- * `packages/domain`'s and `allocation-engine.service.spec.ts`'s unit tests,
- * now proven through the real queue + real database + RLS.
+ * Sprint 5 sub-task 4 (+ Sprint 6 sub-task 1): proves the full wiring
+ * end-to-end against real Postgres + real Redis — `POST
+ * /allocation-runs`-equivalent (`AllocationRunService.create`) enqueues a
+ * real BullMQ job, a real `AllocationEngineProcessor`/`AllocationEngineService`
+ * worker picks it up, runs the actual Step-Down algorithm (`@hpp/domain`)
+ * against real `cost_entries`/`allocation_rules`/`driver_values` rows, and
+ * persists `allocated_costs` that match docs/08_COST_ALLOCATION_ENGINE.md
+ * §4's worked example exactly. Once the run reaches `completed`, the same
+ * worker picks up the chained `profitability.compute` job and materializes
+ * `profitability_results` from those `allocated_costs` plus real
+ * `revenue_entries` — proven with hand-computed numbers, same as
+ * `packages/domain`'s and each engine service's own unit tests, now proven
+ * through the real queue + real database + RLS.
  */
 describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
   jest.setTimeout(120_000);
@@ -78,8 +83,10 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
     periodService = new PeriodService(appPrisma as never, new AuditContextService());
     allocationRunService = new AllocationRunService(appPrisma as never, new AuditContextService(), allocationQueueService);
 
-    const allocationEngineService = new AllocationEngineService(appPrisma as never, tenantContextService);
-    const processor = new AllocationEngineProcessor(allocationEngineService);
+    const allocationEngineService = new AllocationEngineService(appPrisma as never, tenantContextService, allocationQueueService);
+    const targetMarginService = new TargetMarginService(appPrisma as never, new AuditContextService());
+    const profitabilityEngineService = new ProfitabilityEngineService(appPrisma as never, tenantContextService, targetMarginService);
+    const processor = new AllocationEngineProcessor(allocationEngineService, profitabilityEngineService);
     worker = new Worker(ALLOCATION_QUEUE_NAME, (job) => processor.process(job), { connection: connect() });
   }, 120_000);
 
@@ -132,8 +139,8 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
         },
       });
 
-      const hrd = await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "HRD", name: "HRD", type: "support" } });
-      const it = await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "IT", name: "IT", type: "support" } });
+      const hrd = await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "HRD", name: "HRD", type: "indirect" } });
+      const it = await ownerPrisma.costCenter.create({ data: { hospitalId: hospital.id, code: "IT", name: "IT", type: "indirect" } });
       const rj = await ownerPrisma.profitCenter.create({ data: { hospitalId: hospital.id, code: "RJ", name: "Rawat Jalan" } });
       const ri = await ownerPrisma.profitCenter.create({ data: { hospitalId: hospital.id, code: "RI", name: "Rawat Inap" } });
       const empCount = await ownerPrisma.driver.create({ data: { hospitalId: hospital.id, code: "EMP", name: "Employee Count", unit: "people" } });
@@ -180,6 +187,20 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
         ],
       });
 
+      // Revenue side, for the chained profitability.compute stage.
+      const rjService = await ownerPrisma.service.create({
+        data: { hospitalId: hospital.id, profitCenterId: rj.id, code: "SVC-RJ", name: "Konsultasi", serviceType: "consultation" },
+      });
+      const riService = await ownerPrisma.service.create({
+        data: { hospitalId: hospital.id, profitCenterId: ri.id, code: "SVC-RI", name: "Rawat Inap Umum", serviceType: "inpatient" },
+      });
+      await ownerPrisma.revenueEntry.createMany({
+        data: [
+          { hospitalId: hospital.id, periodId: opened.id, profitCenterId: rj.id, serviceId: rjService.id, volume: "1", revenue: "100000000.00", sourceFileId: uploadBatch.id },
+          { hospitalId: hospital.id, periodId: opened.id, profitCenterId: ri.id, serviceId: riService.id, volume: "1", revenue: "90000000.00", sourceFileId: uploadBatch.id },
+        ],
+      });
+
       const run = await runAs(organization.id, hospital.id, () =>
         allocationRunService.create(hospital.id, organization.id, { periodId: opened.id, method: "step_down" }, user.id)
       );
@@ -216,6 +237,70 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
         appPrisma.allocatedCost.findMany({ where: { allocationRunId: run.id } })
       );
       expect(asOtherHospital).toEqual([]);
+
+      // Chained profitability.compute stage.
+      // MANUAL CALCULATION:
+      //   RJ: revenue 100,000,000, direct_cost 0, allocated_cost 82,000,000
+      //     -> total_cost 82,000,000, gross_profit 18,000,000, margin 18.0000%
+      //   RI: revenue 90,000,000, direct_cost 0, allocated_cost 68,000,000
+      //     -> total_cost 68,000,000, gross_profit 22,000,000,
+      //        margin 22,000,000/90,000,000*100 = 24.4444...%
+      await waitFor(async () => {
+        const count = await ownerPrisma.profitabilityResult.count({ where: { allocationRunId: run.id } });
+        return count >= 2;
+      });
+
+      const results = await ownerPrisma.profitabilityResult.findMany({ where: { allocationRunId: run.id } });
+      const byProfitCenter = new Map(results.map((r) => [r.profitCenterId, r]));
+
+      const rjResult = byProfitCenter.get(rj.id)!;
+      expect(rjResult.revenue.toNumber()).toBe(100_000_000);
+      expect(rjResult.directCost.toNumber()).toBe(0);
+      expect(rjResult.allocatedCost.toNumber()).toBe(82_000_000);
+      expect(rjResult.totalCost.toNumber()).toBe(82_000_000);
+      expect(rjResult.grossProfit.toNumber()).toBe(18_000_000);
+      expect(rjResult.margin!.toNumber()).toBeCloseTo(18, 4);
+
+      const riResult = byProfitCenter.get(ri.id)!;
+      expect(riResult.revenue.toNumber()).toBe(90_000_000);
+      expect(riResult.allocatedCost.toNumber()).toBe(68_000_000);
+      expect(riResult.grossProfit.toNumber()).toBe(22_000_000);
+      expect(riResult.margin!.toNumber()).toBeCloseTo(24.4444, 4);
+
+      const finalRun = await ownerPrisma.allocationRun.findUniqueOrThrow({ where: { id: run.id } });
+      expect(finalRun.status).toBe("completed");
+
+      const profResultsAsOtherHospital = await runAs(organization.id, otherHospital.id, () =>
+        appPrisma.profitabilityResult.findMany({ where: { allocationRunId: run.id } })
+      );
+      expect(profResultsAsOtherHospital).toEqual([]);
+
+      // service_unit_costs, same chained stage. Each profit center has
+      // exactly one service, so revenue-weighted apportionment gives it
+      // 100% of that profit center's allocated_cost; volume 1 makes
+      // unit_cost equal the allocated amount exactly. No target_margins
+      // rows exist for this hospital, so target_margin_used falls back to
+      // hospital_settings.default_target_margin (15%).
+      const unitCosts = await ownerPrisma.serviceUnitCost.findMany({ where: { allocationRunId: run.id } });
+      const byServiceId = new Map(unitCosts.map((r) => [r.serviceId, r]));
+
+      const rjUnitCost = byServiceId.get(rjService.id)!;
+      expect(rjUnitCost.serviceAllocatedCost.toNumber()).toBe(82_000_000);
+      expect(rjUnitCost.serviceVolume.toNumber()).toBe(1);
+      expect(rjUnitCost.unitCost!.toNumber()).toBe(82_000_000);
+      expect(rjUnitCost.targetMarginUsed.toNumber()).toBe(15);
+
+      const riUnitCost = byServiceId.get(riService.id)!;
+      expect(riUnitCost.serviceAllocatedCost.toNumber()).toBe(68_000_000);
+      expect(riUnitCost.unitCost!.toNumber()).toBe(68_000_000);
+      // MANUAL CALCULATION: recommended_tariff = unit_cost / (1 - target_margin)
+      // = 68,000,000 / (1 - 0.15) = 68,000,000 / 0.85 = 80,000,000 exactly.
+      expect(riUnitCost.recommendedTariff!.toNumber()).toBe(80_000_000);
+
+      const unitCostsAsOtherHospital = await runAs(organization.id, otherHospital.id, () =>
+        appPrisma.serviceUnitCost.findMany({ where: { allocationRunId: run.id } })
+      );
+      expect(unitCostsAsOtherHospital).toEqual([]);
     }
   );
 });

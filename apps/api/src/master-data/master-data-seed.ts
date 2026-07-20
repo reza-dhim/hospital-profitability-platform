@@ -29,11 +29,11 @@ export async function seedDemoMasterData(prisma: PrismaClient, hospitalId: strin
   });
 
   const costCenterId = await upsertByCode(prisma.costCenter as unknown as UpsertByCodeDelegate, hospitalId, actorUserId, [
-    { code: "CC-HRD", name: "HRD (Sumber Daya Manusia)", type: "support" },
-    { code: "CC-IT", name: "Instalasi Teknologi Informasi", type: "support" },
-    { code: "CC-IPSRS", name: "IPSRS (Pemeliharaan Sarana & Prasarana)", type: "support" },
-    { code: "CC-LND", name: "Laundry", type: "support" },
-    { code: "CC-GIZI", name: "Instalasi Gizi/Dapur", type: "support" },
+    { code: "CC-HRD", name: "HRD (Sumber Daya Manusia)", type: "indirect" },
+    { code: "CC-IT", name: "Instalasi Teknologi Informasi", type: "indirect" },
+    { code: "CC-IPSRS", name: "IPSRS (Pemeliharaan Sarana & Prasarana)", type: "indirect" },
+    { code: "CC-LND", name: "Laundry", type: "indirect" },
+    { code: "CC-GIZI", name: "Instalasi Gizi/Dapur", type: "indirect" },
   ]);
 
   const profitCenterId = await upsertByCode(prisma.profitCenter as unknown as UpsertByCodeDelegate, hospitalId, actorUserId, [
