@@ -82,6 +82,10 @@ describe("ProfitabilityQueryService.summary", () => {
       totalGrossProfit: "50000000.00",
       // 50,000,000 / 150,000,000 * 100 = 33.3333...%
       overallMargin: "33.3333",
+      totalRevenueVariance: null,
+      totalCostVariance: null,
+      totalGrossProfitVariance: null,
+      overallMarginVariance: null,
     });
   });
 
@@ -219,6 +223,81 @@ describe("ProfitabilityQueryService period-over-period variance (docs/09_PROFITA
       Promise.resolve(args.where.periodId === "period-0" ? trailingRun : completedRun)
     );
   }
+
+  /**
+   * MANUAL CALCULATION: current period totals revenue=150,000,000,
+   * totalCost=100,000,000, grossProfit=50,000,000 (overallMargin =
+   * 50,000,000/150,000,000×100 = 33.3333...%). Trailing period totals
+   * revenue=120,000,000, totalCost=90,000,000, grossProfit=30,000,000
+   * (overallMargin = 30,000,000/120,000,000×100 = 25% exactly).
+   *   totalRevenueVariance:     abs = 150,000,000−120,000,000 = 30,000,000
+   *                             pct = 30,000,000/120,000,000×100 = 25%
+   *   totalCostVariance:        abs = 100,000,000−90,000,000 = 10,000,000
+   *                             pct = 10,000,000/90,000,000×100 = 11.1111...%
+   *   totalGrossProfitVariance: abs = 50,000,000−30,000,000 = 20,000,000
+   *                             pct = 20,000,000/30,000,000×100 = 66.6666...% ≈ 66.6667%
+   *   overallMarginVariance:    abs = 33.3333...−25 = 8.3333...%
+   *                             pct = 8.3333.../25×100 = 33.3333...%
+   */
+  it("computes summary-level variance for every KPI against the trailing period's latest completed run", async () => {
+    const { prisma } = makeDeps();
+    mockTrailingPeriodAndRun(prisma);
+    (prisma.profitabilityResult.findMany as jest.Mock).mockImplementation((args: { where: { allocationRunId: string } }) => {
+      if (args.where.allocationRunId === "run-1") {
+        return Promise.resolve([
+          { profitCenterId: "pc-1", revenue: new Decimal(150_000_000), totalCost: new Decimal(100_000_000), grossProfit: new Decimal(50_000_000) },
+        ]);
+      }
+      return Promise.resolve([
+        { profitCenterId: "pc-1", revenue: new Decimal(120_000_000), totalCost: new Decimal(90_000_000), grossProfit: new Decimal(30_000_000) },
+      ]);
+    });
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.summary("hospital-1", { periodId: "period-1" });
+
+    expect(result.totalRevenueVariance).toEqual({ absolute: "30000000.00", percentage: "25.0000" });
+    expect(result.totalCostVariance).toEqual({ absolute: "10000000.00", percentage: "11.1111" });
+    expect(result.totalGrossProfitVariance).toEqual({ absolute: "20000000.00", percentage: "66.6667" });
+    expect(result.overallMarginVariance).toEqual({ absolute: "8.3333", percentage: "33.3333" });
+  });
+
+  it("returns all summary variance fields = null when there is no trailing period", async () => {
+    const { prisma } = makeDeps();
+    // period.findFirst already defaults to null (no trailing period found).
+    (prisma.profitabilityResult.findMany as jest.Mock).mockResolvedValue([
+      { profitCenterId: "pc-1", revenue: new Decimal(150_000_000), totalCost: new Decimal(100_000_000), grossProfit: new Decimal(50_000_000) },
+    ]);
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.summary("hospital-1", { periodId: "period-1" });
+
+    expect(result.totalRevenueVariance).toBeNull();
+    expect(result.totalCostVariance).toBeNull();
+    expect(result.totalGrossProfitVariance).toBeNull();
+    expect(result.overallMarginVariance).toBeNull();
+  });
+
+  it("returns overallMarginVariance = null when the trailing period's overall margin is undefined (zero revenue)", async () => {
+    const { prisma } = makeDeps();
+    mockTrailingPeriodAndRun(prisma);
+    (prisma.profitabilityResult.findMany as jest.Mock).mockImplementation((args: { where: { allocationRunId: string } }) => {
+      if (args.where.allocationRunId === "run-1") {
+        return Promise.resolve([
+          { profitCenterId: "pc-1", revenue: new Decimal(150_000_000), totalCost: new Decimal(100_000_000), grossProfit: new Decimal(50_000_000) },
+        ]);
+      }
+      // Trailing period had zero revenue -> overallMargin is null there.
+      return Promise.resolve([{ profitCenterId: "pc-1", revenue: new Decimal(0), totalCost: new Decimal(0), grossProfit: new Decimal(0) }]);
+    });
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.summary("hospital-1", { periodId: "period-1" });
+
+    expect(result.overallMarginVariance).toBeNull();
+    // Other KPIs still compare fine — only overallMarginVariance is affected by the null-margin guard.
+    expect(result.totalRevenueVariance).toEqual({ absolute: "150000000.00", percentage: null });
+  });
 
   /**
    * MANUAL CALCULATION (same figures as packages/domain's variance test):

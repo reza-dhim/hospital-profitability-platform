@@ -210,9 +210,27 @@ describe("Profitability read API (RLS)", () => {
    * current unit_cost 141,000 vs. trailing unit_cost 120,000.
    *   absolute   = 141,000 − 120,000 = 21,000
    *   percentage = 21,000 / 120,000 × 100 = 17.5%
+   * Hospital-wide summary (single profit center, so summary = that row):
+   * current revenue 22,500,000 / totalCost 14,100,000 / grossProfit
+   * 8,400,000 (margin 37.3333...%) vs. trailing revenue 20,000,000 /
+   * totalCost 12,000,000 / grossProfit 8,000,000 (margin 40%).
+   *   totalRevenueVariance:     abs = 22,500,000−20,000,000 = 2,500,000
+   *                             pct = 2,500,000/20,000,000×100 = 12.5%
+   *   totalGrossProfitVariance: abs = 8,400,000−8,000,000 = 400,000
+   *                             pct = 400,000/8,000,000×100 = 5%
+   *   overallMarginVariance:    abs = 37.3333...−40 = −2.6666...% ≈ −2.6667%
+   *                             pct = −2.6666.../40×100 = −6.6666...% ≈ −6.6667%
    */
-  it("computes totalCostVariance/unitCostVariance against a real trailing period's completed run", async () => {
+  it("computes totalCostVariance/unitCostVariance/summary variance against a real trailing period's completed run", async () => {
     const t = await seedCompletedRunWithTrailingPeriod();
+
+    const summary = await runAs(t.organization.id, t.hospital.id, () =>
+      profitabilityQueryService.summary(t.hospital.id, { periodId: t.period.id })
+    );
+    expect(summary.totalRevenueVariance).toEqual({ absolute: "2500000.00", percentage: "12.5000" });
+    expect(summary.totalCostVariance).toEqual({ absolute: "2100000.00", percentage: "17.5000" });
+    expect(summary.totalGrossProfitVariance).toEqual({ absolute: "400000.00", percentage: "5.0000" });
+    expect(summary.overallMarginVariance).toEqual({ absolute: "-2.6667", percentage: "-6.6667" });
 
     const profitCenters = await runAs(t.organization.id, t.hospital.id, () =>
       profitabilityQueryService.profitCenters(t.hospital.id, { periodId: t.period.id })

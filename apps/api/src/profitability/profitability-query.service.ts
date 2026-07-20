@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { AllocationRun } from "@prisma/client";
-import { margin as marginFormula, variance as varianceFormula, Decimal } from "@hpp/domain";
+import { margin as marginFormula, variance as varianceFormula, Decimal, type VarianceResult } from "@hpp/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import { ListProfitCentersQueryDto, ProfitabilityQueryDto } from "./dto/profitability-query.dto";
 import { ProfitabilitySummaryResponseDto } from "./dto/profitability-summary-response.dto";
@@ -44,6 +44,8 @@ export class ProfitabilityQueryService {
     const totalGrossProfit = results.reduce((sum, r) => sum.plus(r.grossProfit), new Decimal(0));
     const overallMargin = marginFormula(totalGrossProfit, totalRevenue);
 
+    const trailing = await this.trailingSummaryTotals(hospitalId, run.periodId);
+
     return {
       allocationRunId: run.id,
       periodId: run.periodId,
@@ -52,6 +54,13 @@ export class ProfitabilityQueryService {
       totalCost: totalCost.toFixed(2),
       totalGrossProfit: totalGrossProfit.toFixed(2),
       overallMargin: overallMargin ? overallMargin.toFixed(4) : null,
+      totalRevenueVariance: this.toVarianceDto(trailing && varianceFormula(totalRevenue, trailing.totalRevenue), 2),
+      totalCostVariance: this.toVarianceDto(trailing && varianceFormula(totalCost, trailing.totalCost), 2),
+      totalGrossProfitVariance: this.toVarianceDto(trailing && varianceFormula(totalGrossProfit, trailing.totalGrossProfit), 2),
+      overallMarginVariance: this.toVarianceDto(
+        overallMargin && trailing?.overallMargin ? varianceFormula(overallMargin, trailing.overallMargin) : null,
+        4
+      ),
     };
   }
 
@@ -93,9 +102,7 @@ export class ProfitabilityQueryService {
           totalCost: r.totalCost.toFixed(2),
           grossProfit: r.grossProfit.toFixed(2),
           margin: r.margin ? r.margin.toFixed(4) : null,
-          totalCostVariance: totalCostVariance
-            ? { absolute: totalCostVariance.absolute.toFixed(2), percentage: totalCostVariance.percentage?.toFixed(4) ?? null }
-            : null,
+          totalCostVariance: this.toVarianceDto(totalCostVariance, 2),
         };
       }),
     };
@@ -131,9 +138,7 @@ export class ProfitabilityQueryService {
           tariffGap: r.tariffGap ? r.tariffGap.toFixed(4) : null,
           targetMarginUsed: r.targetMarginUsed.toFixed(4),
           recommendedTariff: r.recommendedTariff ? r.recommendedTariff.toFixed(4) : null,
-          unitCostVariance: unitCostVariance
-            ? { absolute: unitCostVariance.absolute.toFixed(4), percentage: unitCostVariance.percentage?.toFixed(4) ?? null }
-            : null,
+          unitCostVariance: this.toVarianceDto(unitCostVariance, 4),
         };
       }),
     };
@@ -227,5 +232,30 @@ export class ProfitabilityQueryService {
     if (!trailingRun) return null;
     const results = await this.prisma.serviceUnitCost.findMany({ where: { allocationRunId: trailingRun.id } });
     return new Map(results.map((r) => [r.serviceId, r.unitCost]));
+  }
+
+  /** Hospital-wide totals for the trailing period's latest completed run — the `summary()` counterpart to `trailingProfitabilityTotalCosts`/`trailingServiceUnitCosts`. */
+  private async trailingSummaryTotals(
+    hospitalId: string,
+    currentPeriodId: string
+  ): Promise<{ totalRevenue: Decimal; totalCost: Decimal; totalGrossProfit: Decimal; overallMargin: Decimal | null } | null> {
+    const trailingRun = await this.resolveTrailingRun(hospitalId, currentPeriodId);
+    if (!trailingRun) return null;
+
+    const results = await this.prisma.profitabilityResult.findMany({ where: { allocationRunId: trailingRun.id } });
+    const totalRevenue = results.reduce((sum, r) => sum.plus(r.revenue), new Decimal(0));
+    const totalCost = results.reduce((sum, r) => sum.plus(r.totalCost), new Decimal(0));
+    const totalGrossProfit = results.reduce((sum, r) => sum.plus(r.grossProfit), new Decimal(0));
+    const overallMargin = marginFormula(totalGrossProfit, totalRevenue);
+
+    return { totalRevenue, totalCost, totalGrossProfit, overallMargin };
+  }
+
+  private toVarianceDto(
+    result: VarianceResult | null,
+    decimals: number
+  ): { absolute: string; percentage: string | null } | null {
+    if (!result) return null;
+    return { absolute: result.absolute.toFixed(decimals), percentage: result.percentage?.toFixed(4) ?? null };
   }
 }
