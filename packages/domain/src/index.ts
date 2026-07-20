@@ -7,6 +7,8 @@ export {
   margin,
   tariffGap,
   recommendedTariff,
+  variance,
+  type VarianceResult,
 } from "./formulas";
 export { resolveTargetMargin, type TargetMarginScope } from "./target-margin";
 export { sequenceCostCenters, CycleDetectedError, type CostCenterPriority } from "./allocation-sequence";

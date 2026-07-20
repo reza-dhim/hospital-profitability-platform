@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { AllocationRun } from "@prisma/client";
-import { margin as marginFormula, Decimal } from "@hpp/domain";
+import { margin as marginFormula, variance as varianceFormula, Decimal } from "@hpp/domain";
 import { PrismaService } from "../prisma/prisma.service";
 import { ListProfitCentersQueryDto, ProfitabilityQueryDto } from "./dto/profitability-query.dto";
 import { ProfitabilitySummaryResponseDto } from "./dto/profitability-summary-response.dto";
@@ -76,19 +76,28 @@ export class ProfitabilityQueryService {
       return order === "asc" ? diff : -diff;
     });
 
+    const trailingTotalCostByProfitCenterId = await this.trailingProfitabilityTotalCosts(hospitalId, run.periodId);
+
     return {
       allocationRunId: run.id,
-      data: sorted.map((r) => ({
-        profitCenterId: r.profitCenterId,
-        profitCenterCode: r.profitCenter.code,
-        profitCenterName: r.profitCenter.name,
-        revenue: r.revenue.toFixed(2),
-        directCost: r.directCost.toFixed(2),
-        allocatedCost: r.allocatedCost.toFixed(2),
-        totalCost: r.totalCost.toFixed(2),
-        grossProfit: r.grossProfit.toFixed(2),
-        margin: r.margin ? r.margin.toFixed(4) : null,
-      })),
+      data: sorted.map((r) => {
+        const priorTotalCost = trailingTotalCostByProfitCenterId?.get(r.profitCenterId);
+        const totalCostVariance = priorTotalCost !== undefined ? varianceFormula(r.totalCost, priorTotalCost) : null;
+        return {
+          profitCenterId: r.profitCenterId,
+          profitCenterCode: r.profitCenter.code,
+          profitCenterName: r.profitCenter.name,
+          revenue: r.revenue.toFixed(2),
+          directCost: r.directCost.toFixed(2),
+          allocatedCost: r.allocatedCost.toFixed(2),
+          totalCost: r.totalCost.toFixed(2),
+          grossProfit: r.grossProfit.toFixed(2),
+          margin: r.margin ? r.margin.toFixed(4) : null,
+          totalCostVariance: totalCostVariance
+            ? { absolute: totalCostVariance.absolute.toFixed(2), percentage: totalCostVariance.percentage?.toFixed(4) ?? null }
+            : null,
+        };
+      }),
     };
   }
 
@@ -99,22 +108,34 @@ export class ProfitabilityQueryService {
       include: { service: { select: { code: true, name: true, profitCenterId: true } } },
     });
 
+    const trailingUnitCostByServiceId = await this.trailingServiceUnitCosts(hospitalId, run.periodId);
+
     return {
       allocationRunId: run.id,
-      data: results.map((r) => ({
-        serviceId: r.serviceId,
-        serviceCode: r.service.code,
-        serviceName: r.service.name,
-        profitCenterId: r.service.profitCenterId,
-        serviceAllocatedCost: r.serviceAllocatedCost.toFixed(2),
-        serviceDirectCost: r.serviceDirectCost.toFixed(2),
-        serviceVolume: r.serviceVolume.toFixed(2),
-        unitCost: r.unitCost ? r.unitCost.toFixed(4) : null,
-        currentTariff: r.currentTariff ? r.currentTariff.toFixed(2) : null,
-        tariffGap: r.tariffGap ? r.tariffGap.toFixed(4) : null,
-        targetMarginUsed: r.targetMarginUsed.toFixed(4),
-        recommendedTariff: r.recommendedTariff ? r.recommendedTariff.toFixed(4) : null,
-      })),
+      data: results.map((r) => {
+        const priorUnitCost = trailingUnitCostByServiceId?.get(r.serviceId);
+        const unitCostVariance =
+          r.unitCost !== null && priorUnitCost !== undefined && priorUnitCost !== null
+            ? varianceFormula(r.unitCost, priorUnitCost)
+            : null;
+        return {
+          serviceId: r.serviceId,
+          serviceCode: r.service.code,
+          serviceName: r.service.name,
+          profitCenterId: r.service.profitCenterId,
+          serviceAllocatedCost: r.serviceAllocatedCost.toFixed(2),
+          serviceDirectCost: r.serviceDirectCost.toFixed(2),
+          serviceVolume: r.serviceVolume.toFixed(2),
+          unitCost: r.unitCost ? r.unitCost.toFixed(4) : null,
+          currentTariff: r.currentTariff ? r.currentTariff.toFixed(2) : null,
+          tariffGap: r.tariffGap ? r.tariffGap.toFixed(4) : null,
+          targetMarginUsed: r.targetMarginUsed.toFixed(4),
+          recommendedTariff: r.recommendedTariff ? r.recommendedTariff.toFixed(4) : null,
+          unitCostVariance: unitCostVariance
+            ? { absolute: unitCostVariance.absolute.toFixed(4), percentage: unitCostVariance.percentage?.toFixed(4) ?? null }
+            : null,
+        };
+      }),
     };
   }
 
@@ -169,5 +190,42 @@ export class ProfitabilityQueryService {
     });
     if (!run) throw noCompletedRun();
     return run;
+  }
+
+  /**
+   * docs/09_PROFITABILITY_ENGINE.md §5: "trailing period" = the period with
+   * the next-earlier `startDate` for this hospital, not a fixed prior year.
+   * Returns null when there's no trailing period at all, or it has no
+   * completed non-stale run — either way, every row's variance is null
+   * (a gap, same "never zero-filled" philosophy as `trends()`).
+   */
+  private async resolveTrailingRun(hospitalId: string, currentPeriodId: string): Promise<AllocationRun | null> {
+    const currentPeriod = await this.prisma.period.findFirst({ where: { id: currentPeriodId, hospitalId } });
+    if (!currentPeriod) return null;
+
+    const trailingPeriod = await this.prisma.period.findFirst({
+      where: { hospitalId, startDate: { lt: currentPeriod.startDate } },
+      orderBy: { startDate: "desc" },
+    });
+    if (!trailingPeriod) return null;
+
+    return this.prisma.allocationRun.findFirst({
+      where: { hospitalId, periodId: trailingPeriod.id, status: "completed", isStale: false },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  private async trailingProfitabilityTotalCosts(hospitalId: string, currentPeriodId: string): Promise<Map<string, Decimal> | null> {
+    const trailingRun = await this.resolveTrailingRun(hospitalId, currentPeriodId);
+    if (!trailingRun) return null;
+    const results = await this.prisma.profitabilityResult.findMany({ where: { allocationRunId: trailingRun.id } });
+    return new Map(results.map((r) => [r.profitCenterId, r.totalCost]));
+  }
+
+  private async trailingServiceUnitCosts(hospitalId: string, currentPeriodId: string): Promise<Map<string, Decimal | null> | null> {
+    const trailingRun = await this.resolveTrailingRun(hospitalId, currentPeriodId);
+    if (!trailingRun) return null;
+    const results = await this.prisma.serviceUnitCost.findMany({ where: { allocationRunId: trailingRun.id } });
+    return new Map(results.map((r) => [r.serviceId, r.unitCost]));
   }
 }

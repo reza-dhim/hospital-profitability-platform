@@ -6,6 +6,7 @@ import {
   margin,
   tariffGap,
   recommendedTariff,
+  variance,
 } from "./formulas";
 
 describe("allocatedCost", () => {
@@ -74,5 +75,42 @@ describe("tariffGap and recommendedTariff", () => {
 
   it("rejects a negative target margin", () => {
     expect(() => recommendedTariff(85_000, -0.1)).toThrow(RangeError);
+  });
+});
+
+describe("variance", () => {
+  /**
+   * MANUAL CALCULATION (docs/09_PROFITABILITY_ENGINE.md §5): current period
+   * total_cost 14,100,000, prior period total_cost 12,000,000.
+   *   absolute   = 14,100,000 − 12,000,000 = 2,100,000
+   *   percentage = 2,100,000 / 12,000,000 × 100 = 17.5%
+   */
+  it("computes an increase's absolute and percentage change exactly", () => {
+    const result = variance(14_100_000, 12_000_000);
+    expect(result.absolute.toNumber()).toBe(2_100_000);
+    expect(result.percentage?.toNumber()).toBe(17.5);
+  });
+
+  /**
+   * MANUAL CALCULATION: current 68,000, prior 80,000 — a decrease.
+   *   absolute   = 68,000 − 80,000 = −12,000
+   *   percentage = −12,000 / 80,000 × 100 = −15%
+   */
+  it("computes a decrease as a negative absolute and percentage", () => {
+    const result = variance(68_000, 80_000);
+    expect(result.absolute.toNumber()).toBe(-12_000);
+    expect(result.percentage?.toNumber()).toBe(-15);
+  });
+
+  it("returns percentage = null when the prior value is zero, instead of dividing by zero", () => {
+    const result = variance(50_000, 0);
+    expect(result.absolute.toNumber()).toBe(50_000);
+    expect(result.percentage).toBeNull();
+  });
+
+  it("returns zero absolute and zero percentage when current equals prior", () => {
+    const result = variance(100_000, 100_000);
+    expect(result.absolute.toNumber()).toBe(0);
+    expect(result.percentage?.toNumber()).toBe(0);
   });
 });

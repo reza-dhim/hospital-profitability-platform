@@ -11,7 +11,9 @@ function makeDeps() {
     profitabilityResult: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
     serviceUnitCost: { findMany: jest.fn().mockResolvedValue([]) },
     profitCenter: { findFirst: jest.fn() },
-    period: { findMany: jest.fn().mockResolvedValue([]) },
+    // Defaults to "no trailing period" so existing tests that don't care
+    // about variance keep getting totalCostVariance/unitCostVariance = null.
+    period: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
   } as unknown as PrismaService;
 
   return { prisma };
@@ -199,6 +201,143 @@ describe("ProfitabilityQueryService.services", () => {
       unitCost: "50000.0000",
       tariffGap: "10000.0000",
     });
+  });
+});
+
+describe("ProfitabilityQueryService period-over-period variance (docs/09_PROFITABILITY_ENGINE.md §5)", () => {
+  const currentPeriod = { id: "period-1", startDate: new Date("2026-02-01") };
+  const trailingPeriod = { id: "period-0", startDate: new Date("2026-01-01") };
+  const trailingRun = { id: "run-0", hospitalId: "hospital-1", periodId: "period-0", status: "completed", isStale: false };
+
+  function mockTrailingPeriodAndRun(prisma: PrismaService) {
+    (prisma.period.findFirst as jest.Mock).mockImplementation((args: { where: { id?: string; startDate?: unknown } }) => {
+      if (args.where.id === "period-1") return Promise.resolve(currentPeriod);
+      if (args.where.startDate) return Promise.resolve(trailingPeriod);
+      return Promise.resolve(null);
+    });
+    (prisma.allocationRun.findFirst as jest.Mock).mockImplementation((args: { where: { periodId: string } }) =>
+      Promise.resolve(args.where.periodId === "period-0" ? trailingRun : completedRun)
+    );
+  }
+
+  /**
+   * MANUAL CALCULATION (same figures as packages/domain's variance test):
+   * current period total_cost 14,100,000, trailing period total_cost
+   * 12,000,000.
+   *   absolute   = 14,100,000 − 12,000,000 = 2,100,000
+   *   percentage = 2,100,000 / 12,000,000 × 100 = 17.5%
+   */
+  it("computes totalCostVariance for a profit center against the trailing period's latest completed run", async () => {
+    const { prisma } = makeDeps();
+    mockTrailingPeriodAndRun(prisma);
+    (prisma.profitabilityResult.findMany as jest.Mock).mockImplementation((args: { where: { allocationRunId: string } }) => {
+      if (args.where.allocationRunId === "run-1") {
+        return Promise.resolve([
+          {
+            profitCenterId: "pc-1",
+            profitCenter: { code: "PC-1", name: "PC One" },
+            revenue: new Decimal(1),
+            directCost: new Decimal(0),
+            allocatedCost: new Decimal(0),
+            totalCost: new Decimal(14_100_000),
+            grossProfit: new Decimal(0),
+            margin: new Decimal(1),
+          },
+        ]);
+      }
+      return Promise.resolve([{ profitCenterId: "pc-1", totalCost: new Decimal(12_000_000) }]);
+    });
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.profitCenters("hospital-1", { periodId: "period-1" });
+
+    expect(result.data[0]!.totalCostVariance).toEqual({ absolute: "2100000.00", percentage: "17.5000" });
+  });
+
+  /**
+   * MANUAL CALCULATION: current unit_cost 68,000, trailing unit_cost
+   * 80,000.
+   *   absolute   = 68,000 − 80,000 = −12,000
+   *   percentage = −12,000 / 80,000 × 100 = −15%
+   */
+  it("computes unitCostVariance for a service against the trailing period's latest completed run", async () => {
+    const { prisma } = makeDeps();
+    mockTrailingPeriodAndRun(prisma);
+    (prisma.serviceUnitCost.findMany as jest.Mock).mockImplementation((args: { where: { allocationRunId: string } }) => {
+      if (args.where.allocationRunId === "run-1") {
+        return Promise.resolve([
+          {
+            serviceId: "svc-1",
+            service: { code: "SVC-1", name: "Svc One", profitCenterId: "pc-1" },
+            serviceAllocatedCost: new Decimal(1),
+            serviceDirectCost: new Decimal(0),
+            serviceVolume: new Decimal(1),
+            unitCost: new Decimal(68_000),
+            currentTariff: null,
+            tariffGap: null,
+            targetMarginUsed: new Decimal(15),
+            recommendedTariff: null,
+          },
+        ]);
+      }
+      return Promise.resolve([{ serviceId: "svc-1", unitCost: new Decimal(80_000) }]);
+    });
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.services("hospital-1", { periodId: "period-1" });
+
+    expect(result.data[0]!.unitCostVariance).toEqual({ absolute: "-12000.0000", percentage: "-15.0000" });
+  });
+
+  it("returns totalCostVariance = null when there is no trailing period at all", async () => {
+    const { prisma } = makeDeps();
+    // period.findFirst already defaults to null (no trailing period found).
+    (prisma.profitabilityResult.findMany as jest.Mock).mockResolvedValue([
+      {
+        profitCenterId: "pc-1",
+        profitCenter: { code: "PC-1", name: "PC One" },
+        revenue: new Decimal(1),
+        directCost: new Decimal(0),
+        allocatedCost: new Decimal(0),
+        totalCost: new Decimal(14_100_000),
+        grossProfit: new Decimal(0),
+        margin: new Decimal(1),
+      },
+    ]);
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.profitCenters("hospital-1", { periodId: "period-1" });
+
+    expect(result.data[0]!.totalCostVariance).toBeNull();
+  });
+
+  it("returns totalCostVariance = null when the trailing period exists but has no completed run", async () => {
+    const { prisma } = makeDeps();
+    (prisma.period.findFirst as jest.Mock).mockImplementation((args: { where: { id?: string; startDate?: unknown } }) => {
+      if (args.where.id === "period-1") return Promise.resolve(currentPeriod);
+      if (args.where.startDate) return Promise.resolve(trailingPeriod);
+      return Promise.resolve(null);
+    });
+    (prisma.allocationRun.findFirst as jest.Mock).mockImplementation((args: { where: { periodId: string } }) =>
+      Promise.resolve(args.where.periodId === "period-0" ? null : completedRun)
+    );
+    (prisma.profitabilityResult.findMany as jest.Mock).mockResolvedValue([
+      {
+        profitCenterId: "pc-1",
+        profitCenter: { code: "PC-1", name: "PC One" },
+        revenue: new Decimal(1),
+        directCost: new Decimal(0),
+        allocatedCost: new Decimal(0),
+        totalCost: new Decimal(14_100_000),
+        grossProfit: new Decimal(0),
+        margin: new Decimal(1),
+      },
+    ]);
+    const service = new ProfitabilityQueryService(prisma);
+
+    const result = await service.profitCenters("hospital-1", { periodId: "period-1" });
+
+    expect(result.data[0]!.totalCostVariance).toBeNull();
   });
 });
 

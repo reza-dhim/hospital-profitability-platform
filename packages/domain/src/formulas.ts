@@ -76,3 +76,26 @@ export function recommendedTariff(unitCost: Numeric, targetMargin: Numeric): Dec
   }
   return toDecimal(unitCost).dividedBy(new Decimal(1).minus(margin));
 }
+
+export interface VarianceResult {
+  /** Current − prior, same unit as the inputs (currency or unit-cost). */
+  absolute: Decimal;
+  /** (Current − prior) / prior × 100. Null when prior is zero — a percentage change from zero is undefined, not ±Infinity. */
+  percentage: Decimal | null;
+}
+
+/**
+ * Variance = current period's figure − the trailing period's equivalent
+ * (docs/09_PROFITABILITY_ENGINE.md §5), expressed both as absolute and
+ * percentage. Applies to either `total_cost` (profitability view) or
+ * `unit_cost` (unit cost view) — same formula either way, just a different
+ * input. v1 is period-over-period only; no budget/standard-cost baseline
+ * exists yet (`40_PRODUCT_ROADMAP.md` candidate).
+ */
+export function variance(current: Numeric, prior: Numeric): VarianceResult {
+  const currentDecimal = toDecimal(current);
+  const priorDecimal = toDecimal(prior);
+  const absolute = currentDecimal.minus(priorDecimal);
+  const percentage = priorDecimal.isZero() ? null : absolute.dividedBy(priorDecimal).times(100);
+  return { absolute, percentage };
+}

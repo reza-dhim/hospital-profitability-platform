@@ -125,7 +125,58 @@ describe("Profitability read API (RLS)", () => {
       },
     });
 
-    return { organization, hospital, otherHospital, profitCenter, service, period, run };
+    return { organization, hospital, otherHospital, user, profitCenter, service, period, run };
+  }
+
+  /**
+   * Extends `seedCompletedRun()` with an earlier ("trailing") period for the
+   * same hospital/profit_center/service, its own completed run, and its own
+   * profitability_results/service_unit_costs rows — for proving variance
+   * end-to-end against real Postgres.
+   */
+  async function seedCompletedRunWithTrailingPeriod() {
+    const t = await seedCompletedRun();
+
+    const trailingPeriod = await ownerPrisma.period.create({
+      data: {
+        hospitalId: t.hospital.id,
+        label: `2025-${randomUUID().slice(0, 2)}`,
+        startDate: new Date("2025-12-01"),
+        endDate: new Date("2026-01-01"),
+        status: "closed",
+      },
+    });
+    const trailingRun = await ownerPrisma.allocationRun.create({
+      data: { hospitalId: t.hospital.id, periodId: trailingPeriod.id, method: "direct", status: "completed", createdByUserId: t.user.id },
+    });
+    await ownerPrisma.profitabilityResult.create({
+      data: {
+        allocationRunId: trailingRun.id,
+        profitCenterId: t.profitCenter.id,
+        revenue: "20000000.00",
+        directCost: "0.00",
+        allocatedCost: "12000000.00",
+        totalCost: "12000000.00",
+        grossProfit: "8000000.00",
+        margin: "40.0000",
+      },
+    });
+    await ownerPrisma.serviceUnitCost.create({
+      data: {
+        allocationRunId: trailingRun.id,
+        serviceId: t.service.id,
+        serviceAllocatedCost: "12000000.00",
+        serviceDirectCost: "0.00",
+        serviceVolume: "100.00",
+        unitCost: "120000.0000",
+        currentTariff: "150000.00",
+        tariffGap: "30000.0000",
+        targetMarginUsed: "15.0000",
+        recommendedTariff: "141176.4706",
+      },
+    });
+
+    return { ...t, trailingPeriod, trailingRun };
   }
 
   it("summary/profitCenters/services return the seeded data for the owning hospital", async () => {
@@ -149,6 +200,35 @@ describe("Profitability read API (RLS)", () => {
     );
     expect(services.data).toHaveLength(1);
     expect(services.data[0]).toMatchObject({ serviceId: t.service.id, serviceCode: "SVC-1", unitCost: "141000.0000" });
+  });
+
+  /**
+   * MANUAL CALCULATION: current period total_cost 14,100,000 vs. trailing
+   * period total_cost 12,000,000.
+   *   absolute   = 14,100,000 − 12,000,000 = 2,100,000
+   *   percentage = 2,100,000 / 12,000,000 × 100 = 17.5%
+   * current unit_cost 141,000 vs. trailing unit_cost 120,000.
+   *   absolute   = 141,000 − 120,000 = 21,000
+   *   percentage = 21,000 / 120,000 × 100 = 17.5%
+   */
+  it("computes totalCostVariance/unitCostVariance against a real trailing period's completed run", async () => {
+    const t = await seedCompletedRunWithTrailingPeriod();
+
+    const profitCenters = await runAs(t.organization.id, t.hospital.id, () =>
+      profitabilityQueryService.profitCenters(t.hospital.id, { periodId: t.period.id })
+    );
+    expect(profitCenters.data[0]!.totalCostVariance).toEqual({ absolute: "2100000.00", percentage: "17.5000" });
+
+    const services = await runAs(t.organization.id, t.hospital.id, () =>
+      profitabilityQueryService.services(t.hospital.id, { periodId: t.period.id })
+    );
+    expect(services.data[0]!.unitCostVariance).toEqual({ absolute: "21000.0000", percentage: "17.5000" });
+
+    // The trailing period's own run has no earlier period to compare against — variance is null there.
+    const trailingProfitCenters = await runAs(t.organization.id, t.hospital.id, () =>
+      profitabilityQueryService.profitCenters(t.hospital.id, { periodId: t.trailingPeriod.id })
+    );
+    expect(trailingProfitCenters.data[0]!.totalCostVariance).toBeNull();
   });
 
   it("stays RLS-scoped: reading under a different hospital's session sees nothing, even with the correct id passed explicitly", async () => {
