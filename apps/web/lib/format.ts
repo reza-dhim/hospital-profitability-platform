@@ -28,6 +28,13 @@ export function formatDateTime(value: string | Date): string {
   return dateTimeFormatter.format(typeof value === "string" ? new Date(value) : value);
 }
 
+const dateFormatter = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" });
+
+/** For date-only fields (e.g. `Tariff.effectiveDate`) — `formatDateTime` includes a time-of-day that's meaningless for these. */
+export function formatDate(value: string | Date): string {
+  return dateFormatter.format(typeof value === "string" ? new Date(value) : value);
+}
+
 export interface VarianceLike {
   absolute: string;
   percentage: string | null;

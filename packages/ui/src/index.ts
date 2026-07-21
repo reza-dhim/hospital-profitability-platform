@@ -9,7 +9,10 @@ export { GuidedTooltip, type GuidedTooltipProps } from "./components/guided-tool
 export { Button, buttonVariants, type ButtonProps } from "./components/button";
 export { Input, type InputProps } from "./components/input";
 export { Label, type LabelProps } from "./components/label";
+export { Select, type SelectProps } from "./components/select";
 export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "./components/card";
+export { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "./components/dialog";
+export { DataTable, type DataTableColumn, type DataTableProps } from "./components/data-table";
 export { MetricCard, type MetricCardProps, type MetricCardTrend } from "./components/metric-card";
 export { UploadDropzone, type UploadDropzoneProps } from "./components/upload-dropzone";
 export {

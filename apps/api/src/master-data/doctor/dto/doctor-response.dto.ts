@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { MasterDataStatus } from "@prisma/client";
 import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
@@ -7,7 +7,7 @@ export class DoctorResponseDto {
   @ApiProperty() hospitalId!: string;
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
-  @ApiPropertyOptional() specialty?: string | null;
+  @ApiProperty({ type: String, nullable: true }) specialty!: string | null;
   @ApiProperty({ enum: MasterDataStatus }) status!: MasterDataStatus;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;

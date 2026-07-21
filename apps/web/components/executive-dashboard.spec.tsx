@@ -28,7 +28,13 @@ function completedRun(periodId: string) {
     periodId,
     method: "step_down" as const,
     status: "completed" as const,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    errorMessage: null,
+    warnings: null,
     isStale: false,
+    staleAt: null,
+    supersedesRunId: null,
     createdByUserId: "u1",
     createdAt: new Date().toISOString(),
   };

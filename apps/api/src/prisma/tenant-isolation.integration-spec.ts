@@ -296,6 +296,31 @@ describe("Tenant isolation (RLS)", () => {
     )) as { id: string }[];
     expect(rowsAsOtherOrg.map((r) => r.id)).not.toContain(bootstrapRow.id);
   });
+
+  it("never lets the app's runtime role update or delete an audit_logs row — append-only at the DB layer, not just app-level convention (docs/14_SECURITY.md §6)", async () => {
+    const tenantA = await seedHospital();
+    const row = (await runAs(tenantA.organization.id, tenantA.hospital.id, () =>
+      appPrisma.auditLog.create({
+        data: { hospitalId: tenantA.hospital.id, userId: tenantA.user.id, action: "test.append_only", entity: "test" },
+      })
+    )) as { id: string };
+
+    // `REVOKE UPDATE, DELETE ON audit_logs FROM hpp_app` (migration
+    // 20260713120000) — this must fail on the GRANT itself, before RLS
+    // policy evaluation even runs, so it holds regardless of tenant context.
+    await expect(
+      runAs(tenantA.organization.id, tenantA.hospital.id, () =>
+        appPrisma.auditLog.update({ where: { id: row.id }, data: { action: "tampered" } })
+      )
+    ).rejects.toThrow();
+
+    await expect(
+      runAs(tenantA.organization.id, tenantA.hospital.id, () => appPrisma.auditLog.delete({ where: { id: row.id } }))
+    ).rejects.toThrow();
+
+    const stillIntact = await ownerPrisma.auditLog.findUniqueOrThrow({ where: { id: row.id } });
+    expect(stillIntact.action).toBe("test.append_only");
+  });
 });
 
 function buildAppClient(url: string, tenantContextService: TenantContextService) {

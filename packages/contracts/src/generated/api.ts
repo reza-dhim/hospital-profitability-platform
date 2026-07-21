@@ -1364,7 +1364,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "direct" | "indirect";
-            profitCenterId?: Record<string, never>;
+            profitCenterId: string | null;
             /** @enum {string} */
             status: "active" | "inactive";
             /** Format: date-time */
@@ -1418,7 +1418,7 @@ export interface components {
             hospitalId: string;
             code: string;
             name: string;
-            department?: Record<string, never>;
+            department: string | null;
             /** @enum {string} */
             status: "active" | "inactive";
             /** Format: date-time */
@@ -1462,7 +1462,7 @@ export interface components {
             code: string;
             name: string;
             unit: string;
-            description?: Record<string, never>;
+            description: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1599,7 +1599,7 @@ export interface components {
             hospitalId: string;
             code: string;
             name: string;
-            specialty?: Record<string, never>;
+            specialty: string | null;
             /** @enum {string} */
             status: "active" | "inactive";
             /** Format: date-time */
@@ -1649,9 +1649,9 @@ export interface components {
             code: string;
             name: string;
             serviceType: string;
-            standardDuration?: Record<string, never>;
+            standardDuration: number | null;
             /** @description Denormalized from the active Tariff row. */
-            currentTariff?: string;
+            currentTariff: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1704,8 +1704,8 @@ export interface components {
             hospitalId: string;
             code: string;
             name: string;
-            roleTitle?: Record<string, never>;
-            departmentCostCenterId?: Record<string, never>;
+            roleTitle: string | null;
+            departmentCostCenterId: string | null;
             employmentType: string;
             /** @enum {string} */
             status: "active" | "inactive";
@@ -1768,7 +1768,7 @@ export interface components {
             code: string;
             name: string;
             category: string;
-            costCenterId?: Record<string, never>;
+            costCenterId: string | null;
             acquisitionCost: string;
             depreciationMethod: string;
             usefulLifeMonths: number;
@@ -1825,7 +1825,7 @@ export interface components {
             hospitalId: string;
             code: string;
             name: string;
-            category?: Record<string, never>;
+            category: string | null;
             /** @enum {string} */
             status: "active" | "inactive";
             /** Format: date-time */
@@ -1877,7 +1877,7 @@ export interface components {
             name: string;
             unit: string;
             standardCost: string;
-            vendorId?: Record<string, never>;
+            vendorId: string | null;
             /** @enum {string} */
             status: "active" | "inactive";
             /** Format: date-time */
@@ -1927,11 +1927,12 @@ export interface components {
             hospitalId: string;
             serviceId: string;
             currentTariff: string;
-            recommendedTariff?: string;
+            recommendedTariff: string | null;
             /** Format: date-time */
             effectiveDate: string;
-            approvedByUserId?: Record<string, never>;
-            approvedAt?: Record<string, never>;
+            approvedByUserId: string | null;
+            /** Format: date-time */
+            approvedAt: string | null;
             /** @enum {string} */
             status: "active" | "superseded";
             /** Format: date-time */
@@ -2122,6 +2123,11 @@ export interface components {
             /** @enum {string} */
             method: "direct" | "step_down";
         };
+        AllocationRunWarningDto: {
+            code: string;
+            costCenterId: string;
+            driverId: string;
+        };
         AllocationRunResponseDto: {
             id: string;
             hospitalId: string;
@@ -2130,15 +2136,18 @@ export interface components {
             method: "direct" | "step_down";
             /** @enum {string} */
             status: "draft" | "running" | "completed" | "completed_with_errors" | "failed";
-            startedAt?: Record<string, never>;
-            finishedAt?: Record<string, never>;
-            errorMessage?: Record<string, never>;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            finishedAt: string | null;
+            errorMessage: string | null;
             /** @description Run-level warnings that didn't fail the run, e.g. W_DRIVER_ZERO. */
-            warnings?: Record<string, never>[];
+            warnings: components["schemas"]["AllocationRunWarningDto"][] | null;
             /** @description Set by upload rollback for this run's period — see docs/01_BUSINESS_RULES.md §5. */
             isStale: boolean;
-            staleAt?: Record<string, never>;
-            supersedesRunId?: Record<string, never>;
+            /** Format: date-time */
+            staleAt: string | null;
+            supersedesRunId: string | null;
             createdByUserId: string;
             /** Format: date-time */
             createdAt: string;
@@ -2151,8 +2160,10 @@ export interface components {
             id: string;
             allocationRunId: string;
             sourceCostCenterId: string;
-            targetCostCenterId?: Record<string, never>;
-            targetProfitCenterId?: Record<string, never>;
+            /** @description Set for a step-down transfer into another cost center; null when the target is a profit center. */
+            targetCostCenterId: string | null;
+            /** @description Set when the target is a profit center; null for a step-down cost-center-to-cost-center transfer. */
+            targetProfitCenterId: string | null;
             driverId: string;
             amount: string;
             /** Format: date-time */

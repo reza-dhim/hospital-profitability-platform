@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCurrencyIDR, formatDateTime, formatPercent, trendFromVariance } from "./format";
+import { formatCurrencyIDR, formatDate, formatDateTime, formatPercent, trendFromVariance } from "./format";
 
 describe("formatCurrencyIDR", () => {
   it("formats a positive amount as Indonesian Rupiah with no decimals", () => {
@@ -28,6 +28,18 @@ describe("formatDateTime", () => {
 
   it("accepts a Date instance directly", () => {
     expect(formatDateTime(new Date("2026-01-15T08:30:00.000Z"))).toMatch(/2026/);
+  });
+});
+
+describe("formatDate", () => {
+  it("formats an ISO string as an Indonesian medium date, without a time-of-day", () => {
+    const result = formatDate("2026-01-15T08:30:00.000Z");
+    expect(result).toMatch(/2026/);
+    expect(result).not.toMatch(/:/);
+  });
+
+  it("accepts a Date instance directly", () => {
+    expect(formatDate(new Date("2026-01-15T08:30:00.000Z"))).toMatch(/2026/);
   });
 });
 

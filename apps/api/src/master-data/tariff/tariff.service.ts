@@ -52,6 +52,10 @@ export class TariffService extends MasterDataCrudService<TariffResponseDto, Crea
     this.tenantContextService.setManagedTransaction(true);
     let created: TariffResponseDto;
     try {
+      // `Decimal` fields serialize to strings over the wire (matches every
+      // other decimal `ResponseDto` in this codebase, e.g.
+      // `AllocatedCostResponseDto.amount`) — the cast below is compile-time
+      // only, not a runtime shape check.
       created = (await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw(tenantSessionSql(this.tenantContextService));
 
@@ -81,7 +85,7 @@ export class TariffService extends MasterDataCrudService<TariffResponseDto, Crea
         });
 
         return tariff;
-      })) as TariffResponseDto;
+      })) as unknown as TariffResponseDto;
     } finally {
       this.tenantContextService.setManagedTransaction(false);
     }

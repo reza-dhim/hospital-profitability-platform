@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty } from "@nestjs/swagger";
 import { CostCenterType, MasterDataStatus } from "@prisma/client";
 import { PaginatedResponseDto } from "../../../common/dto/pagination.dto";
 
@@ -8,7 +8,7 @@ export class CostCenterResponseDto {
   @ApiProperty() code!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ enum: CostCenterType }) type!: CostCenterType;
-  @ApiPropertyOptional() profitCenterId?: string | null;
+  @ApiProperty({ type: String, nullable: true }) profitCenterId!: string | null;
   @ApiProperty({ enum: MasterDataStatus }) status!: MasterDataStatus;
   @ApiProperty() createdAt!: Date;
   @ApiProperty() updatedAt!: Date;
