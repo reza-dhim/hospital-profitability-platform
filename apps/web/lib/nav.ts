@@ -6,6 +6,7 @@ import {
   LineChart,
   Stethoscope,
   Sparkles,
+  FlaskConical,
   FileText,
   Settings,
 } from "lucide-react";
@@ -40,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
     requiredPermission: "doctor_analytics.read",
   },
   { label: "AI Insights", href: "/ai-insights", icon: Sparkles, requiredPermission: "ai.use" },
+  { label: "What-If Simulation", href: "/what-if", icon: FlaskConical, requiredPermission: "ai.use" },
   { label: "Reports", href: "/reports", icon: FileText, requiredPermission: "reports.read" },
   {
     label: "Settings",
