@@ -17,7 +17,7 @@ Transactional   : cost_entries, revenue_entries, driver_values,
                   medical_activities
 Upload Pipeline : upload_batches, upload_rows_staging, validation_errors
 Calculation     : allocation_runs, allocated_costs, profitability_results,
-                  doctor_profitability_results
+                  service_unit_costs, doctor_profitability_results
 AI              : ai_conversations, ai_messages, ai_insights, ai_proposals
 Reporting       : report_schedules, report_exports
 Platform        : audit_logs, notifications
@@ -66,6 +66,10 @@ Fiscal period master — every transactional and calculation table references `p
 - `id`, `upload_batch_id`, `row_number`, `column_name`, `error_code`, `message`, `severity` (`error`\|`warning`), `created_at`
 - Backs `GET /uploads/:id/validation`. See `07_VALIDATION_ENGINE.md` for the error-code taxonomy.
 
+### service_unit_costs
+- `id`, `allocation_run_id`, `service_id`, `service_allocated_cost`, `service_direct_cost`, `service_volume`, `unit_cost` (nullable — null when `service_volume` = 0), `current_tariff` (nullable), `tariff_gap` (nullable), `target_margin_used`, `recommended_tariff` (nullable), `created_at`
+- One row per service per allocation run — Sprint 6, backs `GET /profitability/services`. See `10_UNIT_COST_ENGINE.md` for the unit-cost/tariff-gap/recommended-tariff formulas. A sibling table to `profitability_results` (per-profit-center) at the per-service grain, written once when an allocation run's profitability is computed, never updated in place.
+
 ### ai_conversations / ai_messages
 - `ai_conversations`: `id`, `hospital_id`, `user_id`, `title`, `created_at`, `archived_at`
 - `ai_messages`: `id`, `conversation_id`, `role` (`user`\|`assistant`), `content`, `citations_json`, `created_at`
@@ -112,7 +116,7 @@ services *─1 profit_centers
 upload_batches 1─* upload_rows_staging, validation_errors
 upload_batches 1─* cost_entries|revenue_entries|driver_values|medical_activities (via source_file_id)
 periods 1─* allocation_runs
-allocation_runs 1─* allocated_costs, profitability_results, doctor_profitability_results
+allocation_runs 1─* allocated_costs, profitability_results, service_unit_costs, doctor_profitability_results
 allocation_runs 0..1 supersedes_run_id → allocation_runs (self-reference, see 01_BUSINESS_RULES.md §4)
 users *─1 roles *─* permissions (via role_permissions)
 ```

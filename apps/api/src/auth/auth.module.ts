@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { JwtModule } from "@nestjs/jwt";
 import { PassportModule } from "@nestjs/passport";
+import { ThrottlerModule, seconds } from "@nestjs/throttler";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { PasswordService } from "./password.service";
@@ -30,7 +31,17 @@ import { RolesGuard } from "./guards/roles.guard";
  * `TenantGuard`, for that reason — see `PermissionsService` export below.
  */
 @Module({
-  imports: [PassportModule, JwtModule.register({})],
+  imports: [
+    PassportModule,
+    JwtModule.register({}),
+    // docs/14_SECURITY.md §3 "Login endpoints: rate-limited per IP" — scoped
+    // here (not a global APP_GUARD) and applied only to `POST /auth/login`
+    // via `@UseGuards(ThrottlerGuard)` there. The full per-account lockout
+    // policy (docs/05_AUTHENTICATION.md §3: 10 attempts/15min + email +
+    // audit log) needs new schema and email integration — out of scope for
+    // this pass, tracked separately.
+    ThrottlerModule.forRoot([{ ttl: seconds(60), limit: 5 }]),
+  ],
   controllers: [AuthController],
   providers: [
     AuthService,

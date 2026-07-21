@@ -28,7 +28,7 @@ Rules:
 
 - Driver percentages are **derived, not entered directly**. The engine computes `driver_percentage = driver_values.value (for target center) / SUM(driver_values.value) (for all target centers under that driver, same period)`.
 - Manual override of a computed percentage is not permitted in v1. If a hospital needs a manual adjustment, it must be recorded as a corrected `driver_values` entry (with audit trail per `23_AUDIT_TRAIL.md`), not as an override of the computed allocation.
-- If `driver_values` is missing for a target center in the period, that center receives zero allocation from that driver and a validation warning is raised (`07_VALIDATION_ENGINE.md`).
+- If `driver_values` is missing for every target center under a driver in the period (the driver's total value is zero), the pool is split equally across all candidate targets instead, and a `W_DRIVER_ZERO` warning is raised on the allocation run (`allocation_runs.warnings` — an allocation-run-time warning, not a `07_VALIDATION_ENGINE.md` upload-validation error). See `08_COST_ALLOCATION_ENGINE.md` §5.
 
 ## 4. Recalculation Semantics
 

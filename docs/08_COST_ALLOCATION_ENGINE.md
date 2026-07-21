@@ -51,7 +51,7 @@ Result: Rawat Jalan total allocated cost = 40,000,000 + 42,000,000 = 82,000,000.
 
 ## 5. Tolerance & Edge Cases
 
-- A cost center with **no driver_values** for any target in the period allocates zero and raises a `W_NO_DRIVER_DATA` warning on the run (visible in run detail), but does not fail the run — the cost simply remains unallocated and is surfaced as "unallocated cost" on the dashboard (never silently dropped).
+- A cost center with **no driver_values** for any target in the period (the driver's total value resolves to zero) does not fail the run — the pool is **split equally across all candidate targets** instead, and a `W_DRIVER_ZERO` warning is raised on the run (persisted on `allocation_runs.warnings`, visible in run detail; never silently dropped). This is a deliberate deviation from a literal "leave it unallocated" reading — see `packages/domain/src/allocation-engine.ts`'s `distributePool()` doc comment for the rationale. There is no separate "unallocated cost" figure surfaced anywhere; the equal-split guarantees the pool always fully allocates.
 - Sum-of-allocated-cost reconciliation: for every run, `SUM(allocated_costs.amount) grouped by source cost_center` must equal that cost center's total pool (direct + received) within floating-point tolerance (0.01 currency unit) — enforced as a post-run integrity assertion; a mismatch fails the run rather than publishing incorrect figures.
 
 ## 6. Performance

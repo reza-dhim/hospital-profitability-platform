@@ -148,18 +148,27 @@
 ### allocation_runs
 - id
 - hospital_id
-- period
-- status
+- period_id
+- method (`direct`|`step_down`)
+- status (`draft`|`running`|`completed`|`failed`)
 - started_at
 - finished_at
+- error_message (nullable)
+- warnings (nullable JSON array — `{code, cost_center_id, driver_id}[]`, e.g. `W_DRIVER_ZERO`; see `08_COST_ALLOCATION_ENGINE.md` §5)
+- supersedes_run_id (nullable, unique — set when this run was created by "recalculate" on an earlier run)
+- is_stale, stale_at (nullable — set by an upload rollback for this run's period; see `01_BUSINESS_RULES.md` §5)
+- created_by_user_id
+- created_at
 
 ### allocated_costs
 - id
 - allocation_run_id
-- cost_center_id
-- profit_center_id
+- source_cost_center_id
+- target_cost_center_id (nullable — set for a step-down transfer into another cost center)
+- target_profit_center_id (nullable — set when the target is a profit center; exactly one of the two target columns is set per row)
 - driver_id
 - amount
+- created_at
 
 ### profitability_results
 - id

@@ -4,7 +4,7 @@ Status: Draft v1 — resolves the "Upload Engine" recommendation in `ARCHITECT_A
 
 ## 1. Supported Upload Types
 
-Cost, Revenue, Driver, Asset, Employee, Medical Activity, BMHP, Tariff — one Excel template per type (per `PRD.md`). Each template is versioned (`template_version` embedded as a hidden header row) so the engine can detect and reject uploads against a stale template.
+Cost, Revenue, Driver, Asset, Employee, Medical Activity, BMHP, Tariff — one Excel template per type (per `PRD.md`), of which **Cost, Revenue, and Driver are implemented today** (`apps/api/src/upload/upload.constants.ts`'s `SUPPORTED_UPLOAD_TYPES`). The other five (Asset, Employee, Medical Activity, BMHP, Tariff) are specced here but not yet wired up — `POST /uploads/:type` 501s (`UPLOAD_TYPE_NOT_YET_SUPPORTED`) and `GET /templates/:type/download` 404s (`UPLOAD_TEMPLATE_NOT_FOUND`) for them, since master data for those entity types is currently entered directly (Master Data page CRUD) rather than bulk-uploaded. Each implemented template is versioned (`template_version` embedded as a hidden header row) so the engine can detect and reject uploads against a stale template.
 
 ## 2. Pipeline (Two-Phase, per `ARCHITECT_AUDIT.md` recommendation)
 

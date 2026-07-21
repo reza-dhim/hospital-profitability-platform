@@ -16,7 +16,8 @@ Status: Draft v1 — resolves the "Missing Security Requirement" gap in `ARCHITE
 ## 3. Rate Limiting & Abuse Prevention
 
 - Login endpoints: rate-limited per IP and per account (`05_AUTHENTICATION.md` §3 lockout policy).
-- All authenticated API endpoints: token-bucket rate limit per user (default 300 req/min), configurable per endpoint class — AI endpoints have a stricter limit given cost (`12_AI_ENGINE.md` §3).
+  - **Implemented so far**: `POST /auth/login` is IP-rate-limited (`@nestjs/throttler`, 5 requests/60s per IP, `AuthModule`) — a 429 `RATE_LIMITED` response past the limit. **Not yet implemented**: the per-account lockout half of this policy (10 failed attempts/15min locks the *account* for 15min + emails the user + audit-logs the lockout, per `05_AUTHENTICATION.md` §3) — that needs new schema (failed-attempt tracking per user) and email delivery, neither of which exist in this codebase yet. Tracked as a separate backlog item, not silently dropped.
+- All authenticated API endpoints: token-bucket rate limit per user (default 300 req/min), configurable per endpoint class — AI endpoints have a stricter limit given cost (`12_AI_ENGINE.md` §3). **Not yet implemented** — no rate limiting exists on any endpoint besides `POST /auth/login` today.
 - Upload endpoints: limited by file-size/row caps (`06_UPLOAD_ENGINE.md` §3) plus a per-hospital daily upload count cap to prevent storage/queue abuse.
 
 ## 4. File Upload Security
