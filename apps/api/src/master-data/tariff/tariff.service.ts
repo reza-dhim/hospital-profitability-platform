@@ -59,10 +59,20 @@ export class TariffService extends MasterDataCrudService<TariffResponseDto, Crea
       created = (await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw(tenantSessionSql(this.tenantContextService));
 
-        await tx.tariff.updateMany({
+        // Captured (not just superseded) so a later consumer — currently only
+        // upload rollback (`ConfirmService.rollbackTariffs`) — can restore the
+        // exact prior active tariff instead of guessing. See
+        // `Tariff.supersedesTariffId`'s schema doc comment.
+        const priorActive = await tx.tariff.findFirst({
           where: { hospitalId, serviceId: dto.serviceId, status: "active", deletedAt: null },
-          data: { status: "superseded", updatedByUserId: actorUserId },
+          select: { id: true },
         });
+        if (priorActive) {
+          await tx.tariff.updateMany({
+            where: { id: priorActive.id },
+            data: { status: "superseded", updatedByUserId: actorUserId },
+          });
+        }
 
         const tariff = await tx.tariff.create({
           data: {
@@ -74,6 +84,7 @@ export class TariffService extends MasterDataCrudService<TariffResponseDto, Crea
             approvedByUserId: actorUserId,
             approvedAt: new Date(),
             status: "active",
+            supersedesTariffId: priorActive?.id ?? null,
             createdByUserId: actorUserId,
             updatedByUserId: actorUserId,
           },

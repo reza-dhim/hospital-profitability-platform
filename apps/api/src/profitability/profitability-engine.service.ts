@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TenantContextService } from "../tenancy/tenant-context.service";
 import { tenantSessionSql } from "../prisma/tenant-session.sql";
 import { TargetMarginService } from "../target-margin/target-margin.service";
+import { DoctorProfitabilityEngineService } from "../doctor-analytics/doctor-profitability-engine.service";
 
 export interface ProfitabilityComputeJobData {
   allocationRunId: string;
@@ -19,8 +20,10 @@ export interface ProfitabilityComputeJobData {
  * pipeline, chained after `allocation_run` reaches `completed`
  * (`AllocationEngineService` enqueues the `profitability.compute` job that
  * lands here, dispatched by the same `AllocationEngineProcessor`).
- * Materializes one `profitability_results` row per profit center and one
- * `service_unit_costs` row per service, in the same transaction — never
+ * Materializes one `profitability_results` row per profit center, one
+ * `service_unit_costs` row per service, and (Sprint 8, docs/11_DOCTOR_
+ * ANALYTICS.md §2) one `doctor_profitability_results` row per doctor+service
+ * pair with `medical_activities` data — all in the same transaction, never
  * computed live. On any failure the run becomes `completed_with_errors`
  * (§3's state-machine extension): the allocation numbers already persisted
  * stay valid, only this stage is flagged.
@@ -32,7 +35,8 @@ export class ProfitabilityEngineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenantContextService: TenantContextService,
-    private readonly targetMarginService: TargetMarginService
+    private readonly targetMarginService: TargetMarginService,
+    private readonly doctorProfitabilityEngineService: DoctorProfitabilityEngineService
   ) {}
 
   processRun(payload: ProfitabilityComputeJobData): Promise<void> {
@@ -70,12 +74,18 @@ export class ProfitabilityEngineService {
         run.id,
         run.periodId
       );
-      const unitCostRows = await this.computeServiceUnitCostRows(
+      const { rows: unitCostRows, serviceAllocatedCostByServiceId } = await this.computeServiceUnitCostRows(
         payload.hospitalId,
         run.id,
         run.periodId,
         revenueByProfitCenterId,
         allocatedByProfitCenterId
+      );
+      const doctorProfitabilityRows = await this.doctorProfitabilityEngineService.computeRows(
+        payload.hospitalId,
+        run.id,
+        run.periodId,
+        serviceAllocatedCostByServiceId
       );
 
       this.tenantContextService.setManagedTransaction(true);
@@ -87,6 +97,9 @@ export class ProfitabilityEngineService {
           }
           if (unitCostRows.length > 0) {
             await tx.serviceUnitCost.createMany({ data: unitCostRows });
+          }
+          if (doctorProfitabilityRows.length > 0) {
+            await tx.doctorProfitabilityResult.createMany({ data: doctorProfitabilityRows });
           }
         });
       } finally {
@@ -185,11 +198,16 @@ export class ProfitabilityEngineService {
    * zero the 0/0 ratio is undefined, so this falls back to an equal split
    * across that profit center's services — same "equal-split, never
    * silent" philosophy as `W_DRIVER_ZERO` in Sprint 5, not literally
-   * specified by the doc but consistent with it. `serviceDirectCost` is
-   * always 0 (`medical_activities` deferred). A single service's invalid
-   * target margin (e.g. >= 100%, which would make `recommendedTariff`
-   * throw) only nulls that service's `recommendedTariff` — it never fails
-   * the whole batch.
+   * specified by the doc but consistent with it. `serviceDirectCost`
+   * (Sprint 8) = SUM(medical_activities.bmhp_cost + room_cost + staff_cost)
+   * for that service+period. `serviceVolume` prefers medical_activities'
+   * own volume when present for that service (gradual per-hospital/period
+   * rollout — some services have medical_activities data before others),
+   * else falls back to revenue_entries.volume as before
+   * (docs/10_UNIT_COST_ENGINE.md §2's literal "SUM(medical_activities.volume
+   * OR revenue_entries.volume)"). A single service's invalid target margin
+   * (e.g. >= 100%, which would make `recommendedTariff` throw) only nulls
+   * that service's `recommendedTariff` — it never fails the whole batch.
    */
   private async computeServiceUnitCostRows(
     hospitalId: string,
@@ -198,7 +216,7 @@ export class ProfitabilityEngineService {
     revenueByProfitCenterId: Map<string, Prisma.Decimal>,
     allocatedByProfitCenterId: Map<string, Prisma.Decimal>
   ) {
-    const [services, serviceSums] = await Promise.all([
+    const [services, serviceSums, medicalActivitySums] = await Promise.all([
       this.prisma.service.findMany({
         where: { hospitalId, deletedAt: null },
         select: { id: true, profitCenterId: true, currentTariff: true },
@@ -208,10 +226,22 @@ export class ProfitabilityEngineService {
         where: { hospitalId, periodId },
         _sum: { revenue: true, volume: true },
       }),
+      this.prisma.medicalActivity.groupBy({
+        by: ["serviceId"],
+        where: { hospitalId, periodId },
+        _sum: { bmhpCost: true, roomCost: true, staffCost: true, volume: true },
+      }),
     ]);
 
     const revenueByServiceId = new Map(serviceSums.map((s) => [s.serviceId, s._sum.revenue ?? new Prisma.Decimal(0)]));
     const volumeByServiceId = new Map(serviceSums.map((s) => [s.serviceId, s._sum.volume ?? new Prisma.Decimal(0)]));
+    const directCostByServiceId = new Map(
+      medicalActivitySums.map((s) => [
+        s.serviceId,
+        new Prisma.Decimal(s._sum.bmhpCost ?? 0).plus(new Prisma.Decimal(s._sum.roomCost ?? 0)).plus(new Prisma.Decimal(s._sum.staffCost ?? 0)),
+      ])
+    );
+    const medicalActivityVolumeByServiceId = new Map(medicalActivitySums.map((s) => [s.serviceId, s._sum.volume ?? new Prisma.Decimal(0)]));
 
     const servicesByProfitCenterId = new Map<string, Pick<Service, "id" | "profitCenterId" | "currentTariff">[]>();
     for (const svc of services) {
@@ -221,17 +251,25 @@ export class ProfitabilityEngineService {
     }
 
     const rows = [];
+    const serviceAllocatedCostByServiceId = new Map<string, Prisma.Decimal>();
     for (const [profitCenterId, servicesInPc] of servicesByProfitCenterId) {
       const profitCenterAllocatedCost = allocatedByProfitCenterId.get(profitCenterId) ?? new Prisma.Decimal(0);
       const profitCenterRevenue = revenueByProfitCenterId.get(profitCenterId) ?? new Prisma.Decimal(0);
 
       for (const svc of servicesInPc) {
         const serviceRevenue = revenueByServiceId.get(svc.id) ?? new Prisma.Decimal(0);
-        const serviceVolume = volumeByServiceId.get(svc.id) ?? new Prisma.Decimal(0);
+        // Presence, not non-zero-ness, is the test — Map.has(), not a
+        // truthiness check — a service can legitimately have 0 volume this
+        // period and that's still a real medical_activities-sourced answer,
+        // not "absent, fall back".
+        const serviceVolume = medicalActivityVolumeByServiceId.has(svc.id)
+          ? medicalActivityVolumeByServiceId.get(svc.id)!
+          : (volumeByServiceId.get(svc.id) ?? new Prisma.Decimal(0));
 
         const percentage = driverPercentage(serviceRevenue, profitCenterRevenue) ?? new Decimal(1).dividedBy(servicesInPc.length);
         const serviceAllocatedCost = allocatedCost(profitCenterAllocatedCost, percentage);
-        const serviceDirectCost = new Prisma.Decimal(0);
+        serviceAllocatedCostByServiceId.set(svc.id, serviceAllocatedCost);
+        const serviceDirectCost = directCostByServiceId.get(svc.id) ?? new Prisma.Decimal(0);
         const totalServiceCost = serviceAllocatedCost.plus(serviceDirectCost);
         const uc = unitCost(totalServiceCost, serviceVolume);
 
@@ -263,6 +301,6 @@ export class ProfitabilityEngineService {
       }
     }
 
-    return rows;
+    return { rows, serviceAllocatedCostByServiceId };
   }
 }

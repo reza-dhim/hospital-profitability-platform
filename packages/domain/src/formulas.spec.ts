@@ -7,6 +7,9 @@ import {
   tariffGap,
   recommendedTariff,
   variance,
+  percentile,
+  cohortDistribution,
+  percentileBand,
 } from "./formulas";
 
 describe("allocatedCost", () => {
@@ -112,5 +115,87 @@ describe("variance", () => {
     const result = variance(100_000, 100_000);
     expect(result.absolute.toNumber()).toBe(0);
     expect(result.percentage?.toNumber()).toBe(0);
+  });
+});
+
+describe("percentile", () => {
+  /**
+   * MANUAL CALCULATION (linear interpolation, numpy/Excel default):
+   * sorted [10, 20, 30, 40], N=4.
+   *   P25: rank = 0.25*(4-1) = 0.75 -> between index 0 (10) and 1 (20), fraction 0.75 -> 10 + 10*0.75 = 17.5
+   *   P50: rank = 0.50*3 = 1.5     -> between index 1 (20) and 2 (30), fraction 0.5  -> 20 + 10*0.5  = 25
+   *   P75: rank = 0.75*3 = 2.25    -> between index 2 (30) and 3 (40), fraction 0.25 -> 30 + 10*0.25 = 32.5
+   *   P90: rank = 0.90*3 = 2.7     -> between index 2 (30) and 3 (40), fraction 0.7  -> 30 + 10*0.7  = 37
+   */
+  it("matches the hand-computed linear interpolation exactly for a 4-element distribution", () => {
+    const values = [10, 20, 30, 40];
+    expect(percentile(values, 25)!.toNumber()).toBe(17.5);
+    expect(percentile(values, 50)!.toNumber()).toBe(25);
+    expect(percentile(values, 75)!.toNumber()).toBe(32.5);
+    expect(percentile(values, 90)!.toNumber()).toBe(37);
+  });
+
+  it("returns the single value regardless of p for a single-element distribution", () => {
+    expect(percentile([100], 0)!.toNumber()).toBe(100);
+    expect(percentile([100], 50)!.toNumber()).toBe(100);
+    expect(percentile([100], 100)!.toNumber()).toBe(100);
+  });
+
+  it("interpolates exactly between the two values for a two-element distribution", () => {
+    expect(percentile([10, 30], 50)!.toNumber()).toBe(20);
+  });
+
+  it("returns the exact value with no interpolation when the rank lands precisely on an index", () => {
+    // [10, 20, 30], P50 -> rank = 0.5*2 = 1.0 exactly -> index 1 -> 20, no interpolation.
+    expect(percentile([10, 20, 30], 50)!.toNumber()).toBe(20);
+  });
+
+  it("returns null for an empty distribution", () => {
+    expect(percentile([], 50)).toBeNull();
+  });
+
+  it("sorts unsorted input before computing rank", () => {
+    expect(percentile([40, 10, 30, 20], 50)!.toNumber()).toBe(25);
+  });
+
+  it("throws RangeError for p outside [0, 100]", () => {
+    expect(() => percentile([1, 2, 3], -1)).toThrow(RangeError);
+    expect(() => percentile([1, 2, 3], 101)).toThrow(RangeError);
+  });
+});
+
+describe("cohortDistribution", () => {
+  it("returns median/p25/p75/p90/doctorCount matching the percentile() worked example", () => {
+    const result = cohortDistribution([10, 20, 30, 40])!;
+    expect(result.median.toNumber()).toBe(25);
+    expect(result.p25.toNumber()).toBe(17.5);
+    expect(result.p75.toNumber()).toBe(32.5);
+    expect(result.p90.toNumber()).toBe(37);
+    expect(result.doctorCount).toBe(4);
+  });
+
+  it("returns null for an empty cohort", () => {
+    expect(cohortDistribution([])).toBeNull();
+  });
+});
+
+describe("percentileBand", () => {
+  const cohort = cohortDistribution([10, 20, 30, 40])!; // p25=17.5, p75=32.5, p90=37
+
+  it("classifies a value at or below p25 as below_p25", () => {
+    expect(percentileBand(15, cohort)).toBe("below_p25");
+    expect(percentileBand(17.5, cohort)).toBe("below_p25"); // boundary is inclusive-below, not gte
+  });
+
+  it("classifies a value between p25 and p75 as p25_p75", () => {
+    expect(percentileBand(20, cohort)).toBe("p25_p75");
+  });
+
+  it("classifies a value between p75 and p90 as p75_p90", () => {
+    expect(percentileBand(35, cohort)).toBe("p75_p90");
+  });
+
+  it("classifies a value above p90 as above_p90", () => {
+    expect(percentileBand(40, cohort)).toBe("above_p90");
   });
 });

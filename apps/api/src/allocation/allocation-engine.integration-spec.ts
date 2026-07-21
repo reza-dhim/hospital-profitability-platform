@@ -14,6 +14,7 @@ import { AllocationRunService } from "./allocation-run.service";
 import { AllocationEngineService } from "./allocation-engine.service";
 import { AllocationEngineProcessor } from "./allocation-engine.processor";
 import { ProfitabilityEngineService } from "../profitability/profitability-engine.service";
+import { DoctorProfitabilityEngineService } from "../doctor-analytics/doctor-profitability-engine.service";
 import { TargetMarginService } from "../target-margin/target-margin.service";
 import { AllocationQueueService } from "../queue/allocation-queue.service";
 import { ALLOCATION_QUEUE_NAME } from "../queue/queue.constants";
@@ -85,7 +86,13 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
 
     const allocationEngineService = new AllocationEngineService(appPrisma as never, tenantContextService, allocationQueueService);
     const targetMarginService = new TargetMarginService(appPrisma as never, new AuditContextService());
-    const profitabilityEngineService = new ProfitabilityEngineService(appPrisma as never, tenantContextService, targetMarginService);
+    const doctorProfitabilityEngineService = new DoctorProfitabilityEngineService(appPrisma as never);
+    const profitabilityEngineService = new ProfitabilityEngineService(
+      appPrisma as never,
+      tenantContextService,
+      targetMarginService,
+      doctorProfitabilityEngineService
+    );
     const processor = new AllocationEngineProcessor(allocationEngineService, profitabilityEngineService);
     worker = new Worker(ALLOCATION_QUEUE_NAME, (job) => processor.process(job), { connection: connect() });
   }, 120_000);
@@ -301,6 +308,16 @@ describe("Allocation engine end-to-end (real Postgres + real Redis)", () => {
         appPrisma.serviceUnitCost.findMany({ where: { allocationRunId: run.id } })
       );
       expect(unitCostsAsOtherHospital).toEqual([]);
+
+      // doctor_profitability_results (Sprint 8) — no medical_activities
+      // seeded in this test, so the new pipeline stage must be a clean
+      // no-op: zero rows, no error, doesn't disturb anything computed
+      // above. The apportionment math itself is covered exactly by
+      // doctor-profitability-engine.service.spec.ts's hand-calculated
+      // unit tests; this is the regression-safety check that wiring it
+      // into the real transaction didn't break the existing pipeline.
+      const doctorResults = await ownerPrisma.doctorProfitabilityResult.findMany({ where: { allocationRunId: run.id } });
+      expect(doctorResults).toEqual([]);
     }
   );
 });

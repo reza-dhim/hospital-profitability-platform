@@ -36,6 +36,10 @@ const TYPE_LABEL: Record<string, string> = {
   cost: "Biaya",
   revenue: "Pendapatan",
   driver: "Driver Alokasi",
+  asset: "Aset",
+  employee: "Pegawai",
+  bmhp: "BMHP",
+  tariff: "Tarif",
 };
 
 function StatusBadge({ status }: { status: UploadBatch["status"] }) {

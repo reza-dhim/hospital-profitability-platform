@@ -6,8 +6,8 @@ export type PaginatedUploadBatches = components["schemas"]["PaginatedUploadRespo
 export type ValidationResult = components["schemas"]["ValidationResultResponseDto"];
 export type ValidationError = components["schemas"]["ValidationErrorDto"];
 
-/** The only types the backend actually implements — see `SUPPORTED_UPLOAD_TYPES` in `apps/api/src/upload/upload.constants.ts`. The `UploadType` enum has more values (asset/employee/etc.), all of which currently 501. */
-export type SupportedUploadType = "cost" | "revenue" | "driver";
+/** The types the backend actually implements — see `SUPPORTED_UPLOAD_TYPES` in `apps/api/src/upload/upload.constants.ts`. `medical_activity` is the only `UploadType` enum value not yet supported (no backing table — Sprint 8 prerequisite). */
+export type SupportedUploadType = "cost" | "revenue" | "driver" | "asset" | "employee" | "bmhp" | "tariff";
 
 export interface ListUploadsQuery {
   type?: SupportedUploadType;

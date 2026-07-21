@@ -1132,7 +1132,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Per-service doctor-performance summary for the latest completed run of a period — always de-identified. */
         get: operations["DoctorAnalyticsController_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/doctor-analytics/services/{serviceId}/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cross-doctor variance comparison for one service. Returns a doctor-identified shape (with contributing factors) only when the caller holds doctor_analytics.read_detail and supplied doctorId; otherwise a de-identified percentile-band breakdown (docs/04_RBAC.md §5). */
+        get: operations["DoctorAnalyticsController_comparison"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1151,6 +1169,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["AiController_insights"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai/what-if": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recompute profitability figures for one service with a hypothetical tariff and/or volume. docs/12_AI_ENGINE.md §4 — pure in-memory recomputation of existing formulas, never persisted. */
+        post: operations["AiController_whatIf"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2246,6 +2281,140 @@ export interface components {
             profitCenterId: string;
             /** @description One point per period that has a completed, non-stale run — periods with none are omitted (a gap, not zero-filled). */
             data: components["schemas"]["ProfitabilityTrendPointDto"][];
+        };
+        CohortDistributionDto: {
+            median: string;
+            p25: string;
+            p75: string;
+            p90: string;
+            doctorCount: number;
+        };
+        ComparisonFactorDto: {
+            /** @enum {string} */
+            factor: "bmhp_cost" | "duration_minutes" | "room_cost" | "staff_cost";
+            doctorAvg: string | null;
+            cohortMedian: string | null;
+            delta: string | null;
+        };
+        DoctorComparisonIdentifiedResponseDto: {
+            serviceId: string;
+            serviceCode: string;
+            serviceName: string;
+            allocationRunId: string;
+            periodId: string;
+            doctorId: string;
+            doctorCode: string;
+            doctorName: string;
+            caseCount: number;
+            sufficientSample: boolean;
+            unitCostEquivalent: string | null;
+            cohort: components["schemas"]["CohortDistributionDto"];
+            /** @enum {string|null} */
+            percentileBand: "below_p25" | "p25_p75" | "p75_p90" | "above_p90" | null;
+            /** @description (doctor's unit-cost-equivalent - cohort median) x doctor's volume. */
+            totalCostDelta: string | null;
+            factors: components["schemas"]["ComparisonFactorDto"][];
+            insufficientDataReason: string | null;
+        };
+        DoctorComparisonBandCountDto: {
+            /** @enum {string} */
+            band: "below_p25" | "p25_p75" | "p75_p90" | "above_p90";
+            doctorCount: number;
+        };
+        DoctorComparisonAggregateResponseDto: {
+            serviceId: string;
+            serviceCode: string;
+            serviceName: string;
+            allocationRunId: string;
+            periodId: string;
+            cohort: components["schemas"]["CohortDistributionDto"];
+            bands: components["schemas"]["DoctorComparisonBandCountDto"][];
+            insufficientDataDoctorCount: number;
+        };
+        DoctorAnalyticsSummaryRowDto: {
+            serviceId: string;
+            serviceCode: string;
+            serviceName: string;
+            doctorCount: number;
+            totalRevenue: string;
+            totalCost: string;
+            totalProfit: string;
+            overallMargin: string | null;
+            /** @description Null when no doctor has volume data for this service this period. */
+            cohort: components["schemas"]["CohortDistributionDto"] | null;
+            doctorsAboveP90Count: number;
+            doctorsBelowP25Count: number;
+            /** @description Doctor+service pairs with fewer than 5 cases this period (docs/11_DOCTOR_ANALYTICS.md §3) — excluded from the comparison endpoint's variance math. */
+            insufficientSampleDoctorCount: number;
+        };
+        DoctorAnalyticsSummaryResponseDto: {
+            allocationRunId: string;
+            periodId: string;
+            data: components["schemas"]["DoctorAnalyticsSummaryRowDto"][];
+        };
+        WhatIfSimulationRequestDto: {
+            periodId: string;
+            allocationRunId?: string;
+            /** @description The service to simulate — tariff is inherently a per-service concept. */
+            serviceId: string;
+            /**
+             * @description Defaults to the service's real current tariff when omitted.
+             * @example 175000
+             */
+            hypotheticalTariff?: number;
+            /**
+             * @description Defaults to the service's real current volume when omitted.
+             * @example 120
+             */
+            hypotheticalVolume?: number;
+        };
+        WhatIfServiceFiguresDto: {
+            tariff: string;
+            volume: string;
+            allocatedCost: string;
+            directCost: string;
+            totalCost: string;
+            /** @description Null when volume is zero. */
+            unitCost: string | null;
+            tariffGap: string | null;
+            recommendedTariff: string | null;
+            revenue: string;
+        };
+        WhatIfServiceDeltasDto: {
+            revenue: components["schemas"]["VarianceDto"];
+            totalCost: components["schemas"]["VarianceDto"];
+            /** @description Null when either baseline or hypothetical unit cost is null (zero volume). */
+            unitCost: components["schemas"]["VarianceDto"] | null;
+            tariffGap: components["schemas"]["VarianceDto"] | null;
+        };
+        WhatIfProfitCenterFiguresDto: {
+            revenue: string;
+            directCost: string;
+            allocatedCost: string;
+            totalCost: string;
+            grossProfit: string;
+            margin: string | null;
+        };
+        WhatIfProfitCenterDeltasDto: {
+            revenue: components["schemas"]["VarianceDto"];
+            grossProfit: components["schemas"]["VarianceDto"];
+            margin: components["schemas"]["VarianceDto"] | null;
+        };
+        WhatIfSimulationResponseDto: {
+            allocationRunId: string;
+            periodId: string;
+            serviceId: string;
+            serviceCode: string;
+            serviceName: string;
+            profitCenterId: string;
+            profitCenterCode: string;
+            profitCenterName: string;
+            serviceBaseline: components["schemas"]["WhatIfServiceFiguresDto"];
+            serviceHypothetical: components["schemas"]["WhatIfServiceFiguresDto"];
+            serviceDeltas: components["schemas"]["WhatIfServiceDeltasDto"];
+            profitCenterBaseline: components["schemas"]["WhatIfProfitCenterFiguresDto"];
+            profitCenterHypothetical: components["schemas"]["WhatIfProfitCenterFiguresDto"];
+            profitCenterDeltas: components["schemas"]["WhatIfProfitCenterDeltasDto"];
         };
         AuditLogResponseDto: {
             id: string;
@@ -5564,15 +5733,60 @@ export interface operations {
     };
     DoctorAnalyticsController_summary: {
         parameters: {
-            query?: never;
+            query: {
+                periodId: string;
+                allocationRunId?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Implemented in Sprint 8 — docs/11_DOCTOR_ANALYTICS.md */
-            501: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoctorAnalyticsSummaryResponseDto"];
+                };
+            };
+            /** @description No completed, non-stale allocation run exists for this period. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    DoctorAnalyticsController_comparison: {
+        parameters: {
+            query: {
+                periodId: string;
+                allocationRunId?: string;
+                /** @description Only honored for callers with doctor_analytics.read_detail. */
+                doctorId?: string;
+            };
+            header?: never;
+            path: {
+                serviceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Identified shape for read_detail callers with doctorId supplied; de-identified shape otherwise — see docs/11_DOCTOR_ANALYTICS.md §5. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoctorComparisonIdentifiedResponseDto"] | components["schemas"]["DoctorComparisonAggregateResponseDto"];
+                };
+            };
+            /** @description Service or allocation run not found. */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5591,6 +5805,43 @@ export interface operations {
         responses: {
             /** @description Implemented in Sprint 9 — docs/12_AI_ENGINE.md */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AiController_whatIf: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WhatIfSimulationRequestDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhatIfSimulationResponseDto"];
+                };
+            };
+            /** @description Allocation run or service not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Neither hypotheticalTariff nor hypotheticalVolume was provided. */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -4,7 +4,13 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TenantContextService } from "../tenancy/tenant-context.service";
 import { tenantSessionSql } from "../prisma/tenant-session.sql";
 import { ValidationIssue, parseNumeric } from "./validation-issue";
-import { MasterDataLookup, NATURAL_KEY_FIELDS, OUTLIER_FIELD, ROW_RULES } from "./row-validation-rules";
+import {
+  DUPLICATE_ROW_SEVERITY,
+  MasterDataLookup,
+  NATURAL_KEY_FIELDS,
+  OUTLIER_FIELD,
+  ROW_RULES,
+} from "./row-validation-rules";
 import { mean, stddev } from "./stats.util";
 
 export interface UploadValidateJobData {
@@ -80,7 +86,13 @@ export class ValidateService {
       issuesByRowId.set(row.id, issues);
     }
 
-    this.applyDuplicateChecks(rows, issuesByRowId, naturalKeyFields, await this.fetchConfirmedKeys(payload.hospitalId, batch.type, batch.periodId, naturalKeyFields));
+    this.applyDuplicateChecks(
+      rows,
+      issuesByRowId,
+      naturalKeyFields,
+      await this.fetchConfirmedKeys(payload.hospitalId, batch.type, batch.periodId, naturalKeyFields),
+      DUPLICATE_ROW_SEVERITY[batch.type] ?? "warning"
+    );
 
     if (outlierField) {
       await this.applyOutlierCheck(rows, issuesByRowId, payload.hospitalId, batch.type, batch.periodId, outlierField);
@@ -93,7 +105,8 @@ export class ValidateService {
     rows: { id: string; rowNumber: number; rawJson: unknown }[],
     issuesByRowId: Map<string, ValidationIssue[]>,
     naturalKeyFields: string[],
-    confirmedKeys: Set<string>
+    confirmedKeys: Set<string>,
+    severity: "error" | "warning" = "warning"
   ): void {
     if (naturalKeyFields.length === 0) return;
     const seenInBatch = new Map<string, number>();
@@ -107,13 +120,13 @@ export class ValidateService {
         issues.push({
           errorCode: "E_DUPLICATE_ROW",
           message: `A row with this ${naturalKeyFields.join("+")} was already confirmed for this period in a prior upload.`,
-          severity: "warning",
+          severity,
         });
       } else if (seenInBatch.has(key)) {
         issues.push({
           errorCode: "E_DUPLICATE_ROW",
           message: `Duplicate ${naturalKeyFields.join("+")} within this file (also row ${seenInBatch.get(key)}).`,
-          severity: "warning",
+          severity,
         });
       } else {
         seenInBatch.set(key, row.rowNumber);
@@ -203,22 +216,33 @@ export class ValidateService {
   }
 
   private async buildLookup(hospitalId: string): Promise<MasterDataLookup> {
-    const [costCenters, coaAccounts, profitCenters, services, drivers] = await Promise.all([
-      this.prisma.costCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
-      this.prisma.coaAccount.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
-      this.prisma.profitCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
-      this.prisma.service.findMany({
-        where: { hospitalId, deletedAt: null },
-        select: { code: true, profitCenter: { select: { code: true } } },
-      }),
-      this.prisma.driver.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
-    ]);
+    const [costCenters, coaAccounts, profitCenters, services, drivers, vendors, assets, employees, bmhpItems, doctors] =
+      await Promise.all([
+        this.prisma.costCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.coaAccount.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.profitCenter.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.service.findMany({
+          where: { hospitalId, deletedAt: null },
+          select: { code: true, profitCenter: { select: { code: true } } },
+        }),
+        this.prisma.driver.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.vendor.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.asset.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.employee.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.bmhpItem.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+        this.prisma.doctor.findMany({ where: { hospitalId, deletedAt: null }, select: { code: true } }),
+      ]);
     return {
       costCenterCodes: new Set(costCenters.map((c) => c.code)),
       coaAccountCodes: new Set(coaAccounts.map((c) => c.code)),
       profitCenterCodes: new Set(profitCenters.map((c) => c.code)),
       driverCodes: new Set(drivers.map((d) => d.code)),
       serviceProfitCenter: new Map(services.map((s) => [s.code, s.profitCenter.code])),
+      vendorCodes: new Set(vendors.map((v) => v.code)),
+      assetCodes: new Set(assets.map((a) => a.code)),
+      employeeCodes: new Set(employees.map((e) => e.code)),
+      bmhpItemCodes: new Set(bmhpItems.map((b) => b.code)),
+      doctorCodes: new Set(doctors.map((d) => d.code)),
     };
   }
 

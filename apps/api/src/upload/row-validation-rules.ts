@@ -6,8 +6,14 @@ export interface MasterDataLookup {
   coaAccountCodes: Set<string>;
   profitCenterCodes: Set<string>;
   driverCodes: Set<string>;
-  /** service_code -> the code of that service's configured profit center (for `E_MAPPING_MISMATCH`). */
+  /** service_code -> the code of that service's configured profit center (for `E_MAPPING_MISMATCH`). Also doubles as a plain service-code existence lookup (`Map.has()` works the same as `Set.has()`) for `tariff` uploads. */
   serviceProfitCenter: Map<string, string>;
+  vendorCodes: Set<string>;
+  /** Live (non-deleted) codes for the insert-only master-data upload types — `codeNotExistsRule` checks against these so a row that duplicates an existing code fails validation with a clean message instead of a raw unique-constraint error at confirm time. */
+  assetCodes: Set<string>;
+  employeeCodes: Set<string>;
+  bmhpItemCodes: Set<string>;
+  doctorCodes: Set<string>;
 }
 
 const TARGET_TYPES = ["cost_center", "profit_center"] as const;
@@ -101,6 +107,46 @@ function codeExistsRule(field: string, errorCode: string, lookupKey: keyof Maste
     const container = lookup[lookupKey] as Set<string> | Map<string, string>;
     if (!container.has(String(value))) {
       return [{ errorCode, columnName: field, message: `${field} '${String(value)}' not found.`, severity: "error" }];
+    }
+    return [];
+  };
+}
+
+/** Inverse of `codeExistsRule` — for insert-only master-data uploads (asset/employee/bmhp), a `code` that already exists live is a validation error, not something to upsert over. */
+function codeNotExistsRule(field: string, errorCode: string, lookupKey: keyof MasterDataLookup): RowRule {
+  return (raw, _periodLabel, lookup) => {
+    const value = raw[field];
+    if (isEmpty(value ?? null)) return [];
+    const container = lookup[lookupKey] as Set<string>;
+    if (container.has(String(value))) {
+      return [
+        {
+          errorCode,
+          columnName: field,
+          message: `${field} '${String(value)}' already exists — this upload type is insert-only; edit the existing row via Master Data instead.`,
+          severity: "error",
+        },
+      ];
+    }
+    return [];
+  };
+}
+
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function isoDateRule(field: string): RowRule {
+  return (raw) => {
+    const value = raw[field];
+    if (isEmpty(value ?? null)) return []; // already flagged by E_MISSING_VALUE if required
+    if (typeof value !== "string" || !ISO_DATE_PATTERN.test(value) || Number.isNaN(Date.parse(value))) {
+      return [
+        {
+          errorCode: "E_INVALID_TYPE",
+          columnName: field,
+          message: `'${field}' value '${String(value)}' is not a valid date (expected YYYY-MM-DD).`,
+          severity: "error",
+        },
+      ];
     }
     return [];
   };
@@ -223,13 +269,92 @@ export const ROW_RULES: Partial<Record<UploadType, RowRule[]>> = {
     targetTypeRule(),
     targetCodeExistsRule(),
   ],
+  /** Insert-only master-data types — no `period` rule (see `template-specs.ts`'s doc comment). */
+  asset: [
+    requiredFieldsRule(["code", "name", "category", "acquisition_cost", "depreciation_method", "useful_life_months"]),
+    numericFieldRule("acquisition_cost"),
+    numericFieldRule("useful_life_months"),
+    codeExistsRule("cost_center_code", "E_INVALID_COST_CENTER", "costCenterCodes"),
+    codeNotExistsRule("code", "E_DUPLICATE_ROW", "assetCodes"),
+    zeroValueRule("acquisition_cost"),
+  ],
+  employee: [
+    requiredFieldsRule(["code", "name", "employment_type"]),
+    codeExistsRule("department_cost_center_code", "E_INVALID_COST_CENTER", "costCenterCodes"),
+    codeNotExistsRule("code", "E_DUPLICATE_ROW", "employeeCodes"),
+  ],
+  bmhp: [
+    requiredFieldsRule(["code", "name", "unit", "standard_cost"]),
+    numericFieldRule("standard_cost"),
+    codeExistsRule("vendor_code", "E_INVALID_VENDOR", "vendorCodes"),
+    codeNotExistsRule("code", "E_DUPLICATE_ROW", "bmhpItemCodes"),
+    zeroValueRule("standard_cost"),
+  ],
+  /** No natural-key/duplicate check — `tariffs` is append-only history per service; repeat rows for the same `service_code` across uploads are expected, each one superseding the prior active tariff (`ConfirmService`, matching `TariffService.create()`). */
+  tariff: [
+    requiredFieldsRule(["service_code", "current_tariff", "effective_date"]),
+    numericFieldRule("current_tariff"),
+    numericFieldRule("recommended_tariff"),
+    codeExistsRule("service_code", "E_INVALID_SERVICE", "serviceProfitCenter"),
+    isoDateRule("effective_date"),
+    zeroValueRule("current_tariff"),
+  ],
+  /**
+   * Sprint 8 — period-scoped like cost/revenue/driver, but one row = one
+   * case/activity instance, not a period aggregate. No `NATURAL_KEY_FIELDS`
+   * entry (see below) — many rows legitimately share the same
+   * period+service_code+doctor_code (that's what the doctor-profitability
+   * engine's SUM/AVG-by-doctor-and-service grouping requires). No
+   * `OUTLIER_FIELD` either (v1 scope, same as `driver`).
+   */
+  medical_activity: [
+    requiredFieldsRule([
+      "period",
+      "service_code",
+      "doctor_code",
+      "volume",
+      "duration_minutes",
+      "bmhp_cost",
+      "room_cost",
+      "staff_cost",
+      "revenue",
+    ]),
+    periodRule(),
+    numericFieldRule("volume"),
+    numericFieldRule("duration_minutes"),
+    numericFieldRule("bmhp_cost"),
+    numericFieldRule("room_cost"),
+    numericFieldRule("staff_cost"),
+    numericFieldRule("revenue"),
+    codeExistsRule("service_code", "E_INVALID_SERVICE", "serviceProfitCenter"),
+    codeExistsRule("doctor_code", "E_INVALID_DOCTOR", "doctorCodes"),
+    zeroValueRule("volume"),
+  ],
 };
 
-/** Natural key fields per type (docs/07_VALIDATION_ENGINE.md §2: `E_DUPLICATE_ROW` — "period + cost_center + coa_account, etc."). */
+/** Natural key fields per type (docs/07_VALIDATION_ENGINE.md §2: `E_DUPLICATE_ROW` — "period + cost_center + coa_account, etc."). Asset/Employee/BMHP dedupe on `code` alone (not period-scoped); Tariff has none (append-only history, see `ROW_RULES.tariff`'s doc comment). */
 export const NATURAL_KEY_FIELDS: Partial<Record<UploadType, string[]>> = {
   cost: ["period", "cost_center_code", "coa_account_code"],
   revenue: ["period", "profit_center_code", "service_code"],
   driver: ["period", "driver_code", "target_type", "target_code"],
+  asset: ["code"],
+  employee: ["code"],
+  bmhp: ["code"],
+};
+
+/**
+ * `E_DUPLICATE_ROW` severity per type — defaults to `warning` (cost/revenue/
+ * driver: a legitimate re-upload of the same period just needs
+ * acknowledgment). Insert-only master-data types escalate to `error`: two
+ * rows sharing a `code` within one file would otherwise both pass validation
+ * and then collide on the live `@@unique([hospitalId, code])` constraint
+ * mid-transaction at confirm time, aborting the whole batch with a raw
+ * unique-violation instead of a clean validation message.
+ */
+export const DUPLICATE_ROW_SEVERITY: Partial<Record<UploadType, "error" | "warning">> = {
+  asset: "error",
+  employee: "error",
+  bmhp: "error",
 };
 
 /** Field `W_OUTLIER_NOMINAL` (docs §3) tracks per type. */

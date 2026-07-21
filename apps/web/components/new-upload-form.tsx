@@ -13,6 +13,10 @@ const UPLOAD_TYPE_OPTIONS: { value: SupportedUploadType; label: string }[] = [
   { value: "cost", label: "Biaya" },
   { value: "revenue", label: "Pendapatan" },
   { value: "driver", label: "Driver Alokasi" },
+  { value: "asset", label: "Aset" },
+  { value: "employee", label: "Pegawai" },
+  { value: "bmhp", label: "BMHP" },
+  { value: "tariff", label: "Tarif" },
 ];
 
 const SELECT_CLASS =
@@ -20,9 +24,10 @@ const SELECT_CLASS =
 
 /**
  * docs/06_UPLOAD_ENGINE.md §2 steps 1-2: template download + `POST /uploads/:type`.
- * Only offers `cost`/`revenue`/`driver` — the only types the backend
- * implements (`SUPPORTED_UPLOAD_TYPES`). Period options are limited to
- * `open` periods since intake 422s otherwise (`CreateUploadDto` doc comment).
+ * Offers every type the backend implements (`SUPPORTED_UPLOAD_TYPES`) —
+ * `medical_activity` is the only `UploadType` not yet supported (no backing
+ * table). Period options are limited to `open` periods since intake 422s
+ * otherwise (`CreateUploadDto` doc comment).
  */
 export function NewUploadForm({ onCreated }: { onCreated: () => void }) {
   const [type, setType] = useState<SupportedUploadType>("cost");

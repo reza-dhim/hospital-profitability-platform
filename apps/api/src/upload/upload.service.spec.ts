@@ -55,8 +55,12 @@ describe("UploadService.create", () => {
     const service = new UploadService(prisma, storageService, uploadQueueService, periodService, virusScanner);
     const file = await makeValidXlsxFile();
 
+    // Every `UploadType` enum value is supported as of Sprint 8 — this
+    // proves the rejection branch itself still works by bypassing the type
+    // system, the same way a stale/future enum value not yet added to
+    // `SUPPORTED_UPLOAD_TYPES` would reach this check.
     await expect(
-      service.create("hospital-1", "org-1", "asset", { periodId: "period-1" }, file, "actor-1")
+      service.create("hospital-1", "org-1", "not_a_real_type" as never, { periodId: "period-1" }, file, "actor-1")
     ).rejects.toBeInstanceOf(NotImplementedException);
     expect(periodService.findOne).not.toHaveBeenCalled();
   });

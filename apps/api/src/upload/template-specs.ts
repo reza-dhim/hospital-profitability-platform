@@ -57,4 +57,77 @@ export const TEMPLATE_SPECS: Partial<Record<UploadType, TemplateSpec>> = {
       { header: "value" },
     ],
   },
+  /**
+   * Master-data upload types (this sub-task) — no `period` column, since
+   * Asset/Employee/BmhpItem/Tariff aren't period-scoped entities
+   * (`upload_batches.period_id` still gates "is this hospital's data-entry
+   * window open", it just isn't written onto the promoted row). Insert-only:
+   * a `code` that already exists among live rows is a validation error, not
+   * an update — see `row-validation-rules.ts`'s `codeNotExistsRule`.
+   */
+  asset: {
+    columns: [
+      { header: "code" },
+      { header: "name" },
+      { header: "category" },
+      { header: "cost_center_code" },
+      { header: "acquisition_cost" },
+      { header: "depreciation_method" },
+      { header: "useful_life_months" },
+    ],
+  },
+  employee: {
+    columns: [
+      { header: "code" },
+      { header: "name" },
+      { header: "role_title" },
+      { header: "department_cost_center_code" },
+      { header: "employment_type" },
+    ],
+  },
+  bmhp: {
+    columns: [
+      { header: "code" },
+      { header: "name" },
+      { header: "unit" },
+      { header: "standard_cost" },
+      { header: "vendor_code" },
+    ],
+  },
+  /**
+   * No `code`/duplicate check — `tariffs` is an append-only history per
+   * `service_code` by design (docs/02_DOMAIN_MODEL.md's `tariffs` note).
+   * Each valid row is always a new insert that supersedes the prior active
+   * tariff for that service, same as `TariffService.create()`.
+   */
+  tariff: {
+    columns: [
+      { header: "service_code" },
+      { header: "current_tariff" },
+      { header: "recommended_tariff" },
+      { header: "effective_date" },
+    ],
+  },
+  /**
+   * Sprint 8 prerequisite — period-scoped, append-only case-level data
+   * (docs/11_DOCTOR_ANALYTICS.md §2), same pipeline shape as cost/revenue/
+   * driver above, not the insert-only master-data shape used by
+   * asset/employee/bmhp/tariff. One row = one activity/case instance —
+   * many rows legitimately share the same period+service_code+doctor_code,
+   * which is why there's no natural-key duplicate check for this type
+   * (row-validation-rules.ts).
+   */
+  medical_activity: {
+    columns: [
+      { header: "period" },
+      { header: "service_code" },
+      { header: "doctor_code" },
+      { header: "volume" },
+      { header: "duration_minutes" },
+      { header: "bmhp_cost" },
+      { header: "room_cost" },
+      { header: "staff_cost" },
+      { header: "revenue" },
+    ],
+  },
 };

@@ -9,6 +9,11 @@ export {
   recommendedTariff,
   variance,
   type VarianceResult,
+  percentile,
+  cohortDistribution,
+  percentileBand,
+  type CohortDistribution,
+  type PercentileBand,
 } from "./formulas";
 export { resolveTargetMargin, type TargetMarginScope } from "./target-margin";
 export { sequenceCostCenters, CycleDetectedError, type CostCenterPriority } from "./allocation-sequence";

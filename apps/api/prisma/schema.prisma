@@ -50,26 +50,27 @@ model Hospital {
   updatedBy    User?                    @relation("HospitalUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   // --- Sprint 3 master data (docs/02_DOMAIN_MODEL.md §1) ---
-  costCenters      CostCenter[]
-  profitCenters    ProfitCenter[]
-  drivers          Driver[]
-  allocationRules  AllocationRule[]
-  coaAccounts      CoaAccount[]
-  doctors          Doctor[]
-  services         Service[]
-  employees        Employee[]
-  assets           Asset[]
-  vendors          Vendor[]
-  bmhpItems        BmhpItem[]
-  tariffs          Tariff[]
-  hospitalSettings HospitalSettings?
-  periods          Period[]
-  uploadBatches    UploadBatch[]
-  costEntries      CostEntry[]
-  revenueEntries   RevenueEntry[]
-  driverValues     DriverValue[]
-  allocationRuns   AllocationRun[]
-  targetMargins    TargetMargin[]
+  costCenters       CostCenter[]
+  profitCenters     ProfitCenter[]
+  drivers           Driver[]
+  allocationRules   AllocationRule[]
+  coaAccounts       CoaAccount[]
+  doctors           Doctor[]
+  services          Service[]
+  employees         Employee[]
+  assets            Asset[]
+  vendors           Vendor[]
+  bmhpItems         BmhpItem[]
+  tariffs           Tariff[]
+  hospitalSettings  HospitalSettings?
+  periods           Period[]
+  uploadBatches     UploadBatch[]
+  costEntries       CostEntry[]
+  revenueEntries    RevenueEntry[]
+  driverValues      DriverValue[]
+  medicalActivities MedicalActivity[]
+  allocationRuns    AllocationRun[]
+  targetMargins     TargetMargin[]
 
   @@unique([organizationId, code])
   @@map("hospitals")
@@ -519,6 +520,9 @@ model Doctor {
   createdBy User?    @relation("DoctorCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   updatedBy User?    @relation("DoctorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
+  medicalActivities          MedicalActivity[]
+  doctorProfitabilityResults DoctorProfitabilityResult[]
+
   @@unique([hospitalId, code])
   @@index([hospitalId])
   @@map("doctors")
@@ -542,13 +546,15 @@ model Service {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  hospital         Hospital          @relation(fields: [hospitalId], references: [id])
-  profitCenter     ProfitCenter      @relation(fields: [profitCenterId], references: [id])
-  tariffs          Tariff[]
-  revenueEntries   RevenueEntry[]
-  serviceUnitCosts ServiceUnitCost[]
-  createdBy        User?             @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy        User?             @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital                   Hospital                    @relation(fields: [hospitalId], references: [id])
+  profitCenter               ProfitCenter                @relation(fields: [profitCenterId], references: [id])
+  tariffs                    Tariff[]
+  revenueEntries             RevenueEntry[]
+  serviceUnitCosts           ServiceUnitCost[]
+  medicalActivities          MedicalActivity[]
+  doctorProfitabilityResults DoctorProfitabilityResult[]
+  createdBy                  User?                       @relation("ServiceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy                  User?                       @relation("ServiceUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
@@ -565,19 +571,25 @@ model Employee {
   departmentCostCenterId String?          @map("department_cost_center_id")
   employmentType         String           @map("employment_type")
   status                 MasterDataStatus @default(active)
+  /// Set only when this row was created by a bulk upload (docs/06_UPLOAD_ENGINE.md) —
+  /// null for rows entered directly via Master Data CRUD. Upload-created rows are
+  /// insert-only (no upsert-by-code); rollback soft-deletes rows matching this batch.
+  sourceFileId           String?          @map("source_file_id")
   createdByUserId        String?          @map("created_by_user_id")
   updatedByUserId        String?          @map("updated_by_user_id")
   createdAt              DateTime         @default(now()) @map("created_at")
   updatedAt              DateTime         @updatedAt @map("updated_at")
   deletedAt              DateTime?        @map("deleted_at")
 
-  hospital             Hospital    @relation(fields: [hospitalId], references: [id])
-  departmentCostCenter CostCenter? @relation(fields: [departmentCostCenterId], references: [id])
-  createdBy            User?       @relation("EmployeeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy            User?       @relation("EmployeeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital             Hospital     @relation(fields: [hospitalId], references: [id])
+  departmentCostCenter CostCenter?  @relation(fields: [departmentCostCenterId], references: [id])
+  sourceFile           UploadBatch? @relation(fields: [sourceFileId], references: [id])
+  createdBy            User?        @relation("EmployeeCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy            User?        @relation("EmployeeUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
+  @@index([sourceFileId])
   @@map("employees")
 }
 
@@ -592,19 +604,23 @@ model Asset {
   depreciationMethod String           @map("depreciation_method")
   usefulLifeMonths   Int              @map("useful_life_months")
   status             MasterDataStatus @default(active)
+  /// See `Employee.sourceFileId` doc comment — same semantics.
+  sourceFileId       String?          @map("source_file_id")
   createdByUserId    String?          @map("created_by_user_id")
   updatedByUserId    String?          @map("updated_by_user_id")
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
   deletedAt          DateTime?        @map("deleted_at")
 
-  hospital   Hospital    @relation(fields: [hospitalId], references: [id])
-  costCenter CostCenter? @relation(fields: [costCenterId], references: [id])
-  createdBy  User?       @relation("AssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy  User?       @relation("AssetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital   Hospital     @relation(fields: [hospitalId], references: [id])
+  costCenter CostCenter?  @relation(fields: [costCenterId], references: [id])
+  sourceFile UploadBatch? @relation(fields: [sourceFileId], references: [id])
+  createdBy  User?        @relation("AssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  User?        @relation("AssetUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
+  @@index([sourceFileId])
   @@map("assets")
 }
 
@@ -641,19 +657,23 @@ model BmhpItem {
   standardCost    Decimal          @map("standard_cost") @db.Decimal(14, 2)
   vendorId        String?          @map("vendor_id")
   status          MasterDataStatus @default(active)
+  /// See `Employee.sourceFileId` doc comment — same semantics.
+  sourceFileId    String?          @map("source_file_id")
   createdByUserId String?          @map("created_by_user_id")
   updatedByUserId String?          @map("updated_by_user_id")
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
   deletedAt       DateTime?        @map("deleted_at")
 
-  hospital  Hospital @relation(fields: [hospitalId], references: [id])
-  vendor    Vendor?  @relation(fields: [vendorId], references: [id])
-  createdBy User?    @relation("BmhpItemCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy User?    @relation("BmhpItemUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital   Hospital     @relation(fields: [hospitalId], references: [id])
+  vendor     Vendor?      @relation(fields: [vendorId], references: [id])
+  sourceFile UploadBatch? @relation(fields: [sourceFileId], references: [id])
+  createdBy  User?        @relation("BmhpItemCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy  User?        @relation("BmhpItemUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([hospitalId, code])
   @@index([hospitalId])
+  @@index([sourceFileId])
   @@map("bmhp_items")
 }
 
@@ -661,29 +681,41 @@ model BmhpItem {
 /// row is inserted on every tariff change rather than editing in place;
 /// `Service.currentTariff` is the denormalized pointer to the active row.
 model Tariff {
-  id                String       @id @default(uuid())
-  hospitalId        String       @map("hospital_id")
-  serviceId         String       @map("service_id")
-  currentTariff     Decimal      @map("current_tariff") @db.Decimal(14, 2)
-  recommendedTariff Decimal?     @map("recommended_tariff") @db.Decimal(14, 2)
-  effectiveDate     DateTime     @map("effective_date")
-  approvedByUserId  String?      @map("approved_by_user_id")
-  approvedAt        DateTime?    @map("approved_at")
-  status            TariffStatus @default(active)
-  createdByUserId   String?      @map("created_by_user_id")
-  updatedByUserId   String?      @map("updated_by_user_id")
-  createdAt         DateTime     @default(now()) @map("created_at")
-  updatedAt         DateTime     @updatedAt @map("updated_at")
-  deletedAt         DateTime?    @map("deleted_at")
+  id                 String       @id @default(uuid())
+  hospitalId         String       @map("hospital_id")
+  serviceId          String       @map("service_id")
+  currentTariff      Decimal      @map("current_tariff") @db.Decimal(14, 2)
+  recommendedTariff  Decimal?     @map("recommended_tariff") @db.Decimal(14, 2)
+  effectiveDate      DateTime     @map("effective_date")
+  approvedByUserId   String?      @map("approved_by_user_id")
+  approvedAt         DateTime?    @map("approved_at")
+  status             TariffStatus @default(active)
+  /// See `Employee.sourceFileId` doc comment — same semantics, set for both
+  /// direct Master Data creates going through an upload and bulk-uploaded rows.
+  sourceFileId       String?      @map("source_file_id")
+  /// The tariff this row superseded for the same service at creation time (if
+  /// any) — set by both `TariffService.create()` and upload promotion, so a
+  /// rollback can restore the exact prior active tariff + `Service.currentTariff`
+  /// rather than guessing. Mirrors `AllocationRun.supersedesRunId`.
+  supersedesTariffId String?      @unique @map("supersedes_tariff_id")
+  createdByUserId    String?      @map("created_by_user_id")
+  updatedByUserId    String?      @map("updated_by_user_id")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  deletedAt          DateTime?    @map("deleted_at")
 
-  hospital   Hospital @relation(fields: [hospitalId], references: [id])
-  service    Service  @relation(fields: [serviceId], references: [id])
-  approvedBy User?    @relation("TariffApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
-  createdBy  User?    @relation("TariffCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy  User?    @relation("TariffUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  hospital         Hospital     @relation(fields: [hospitalId], references: [id])
+  service          Service      @relation(fields: [serviceId], references: [id])
+  sourceFile       UploadBatch? @relation(fields: [sourceFileId], references: [id])
+  supersedesTariff Tariff?      @relation("TariffSupersedes", fields: [supersedesTariffId], references: [id])
+  supersededBy     Tariff?      @relation("TariffSupersedes")
+  approvedBy       User?        @relation("TariffApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  createdBy        User?        @relation("TariffCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy        User?        @relation("TariffUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
 
   @@index([hospitalId])
   @@index([serviceId])
+  @@index([sourceFileId])
   @@map("tariffs")
 }
 
@@ -748,15 +780,16 @@ model Period {
   updatedAt       DateTime     @updatedAt @map("updated_at")
   deletedAt       DateTime?    @map("deleted_at")
 
-  hospital       Hospital        @relation(fields: [hospitalId], references: [id])
-  createdBy      User?           @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  updatedBy      User?           @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
-  uploadBatches  UploadBatch[]
-  costEntries    CostEntry[]
-  revenueEntries RevenueEntry[]
-  driverValues   DriverValue[]
-  allocationRuns AllocationRun[]
-  targetMargins  TargetMargin[]
+  hospital          Hospital          @relation(fields: [hospitalId], references: [id])
+  createdBy         User?             @relation("PeriodCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  updatedBy         User?             @relation("PeriodUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  uploadBatches     UploadBatch[]
+  costEntries       CostEntry[]
+  revenueEntries    RevenueEntry[]
+  driverValues      DriverValue[]
+  medicalActivities MedicalActivity[]
+  allocationRuns    AllocationRun[]
+  targetMargins     TargetMargin[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
@@ -853,14 +886,19 @@ model UploadBatch {
   confirmedAt      DateTime?         @map("confirmed_at")
   rolledBackAt     DateTime?         @map("rolled_back_at")
 
-  hospital         Hospital           @relation(fields: [hospitalId], references: [id])
-  period           Period             @relation(fields: [periodId], references: [id])
-  uploadedBy       User               @relation("UploadBatchUploadedBy", fields: [uploadedByUserId], references: [id])
-  rows             UploadRowStaging[]
-  validationErrors ValidationError[]
-  costEntries      CostEntry[]
-  revenueEntries   RevenueEntry[]
-  driverValues     DriverValue[]
+  hospital          Hospital           @relation(fields: [hospitalId], references: [id])
+  period            Period             @relation(fields: [periodId], references: [id])
+  uploadedBy        User               @relation("UploadBatchUploadedBy", fields: [uploadedByUserId], references: [id])
+  rows              UploadRowStaging[]
+  validationErrors  ValidationError[]
+  costEntries       CostEntry[]
+  revenueEntries    RevenueEntry[]
+  driverValues      DriverValue[]
+  medicalActivities MedicalActivity[]
+  assets            Asset[]
+  employees         Employee[]
+  bmhpItems         BmhpItem[]
+  tariffs           Tariff[]
 
   @@index([hospitalId, status])
   @@index([periodId])
@@ -1013,6 +1051,49 @@ model DriverValue {
   @@map("driver_values")
 }
 
+/// Sprint 8 prerequisite — docs/02_DOMAIN_MODEL.md §1 groups this as
+/// Transactional (same shape as RevenueEntry: period-scoped, append-only,
+/// `sourceFileId` required not nullable), but unlike its siblings one row
+/// here is one case/activity instance, not a period aggregate — many rows
+/// legitimately share the same `(periodId, serviceId, doctorId)` tuple,
+/// which is exactly what `docs/11_DOCTOR_ANALYTICS.md` §2's SUM/AVG-by-
+/// doctor-and-service grouping requires. Feeds `service_direct_cost`
+/// (`docs/10_UNIT_COST_ENGINE.md` §2) and `doctor_profitability_results`
+/// (`docs/11_DOCTOR_ANALYTICS.md` §2). Written only by
+/// `ConfirmService.confirm()`'s `medical_activity` branch; removed only by
+/// `rollback()`, hard-deleted by `sourceFileId` — same semantics as
+/// CostEntry/RevenueEntry/DriverValue, not the insert-only-with-soft-delete
+/// pattern used for Asset/Employee/BmhpItem/Tariff uploads.
+model MedicalActivity {
+  id              String   @id @default(uuid())
+  hospitalId      String   @map("hospital_id")
+  periodId        String   @map("period_id")
+  serviceId       String   @map("service_id")
+  doctorId        String   @map("doctor_id")
+  volume          Decimal  @db.Decimal(14, 2)
+  durationMinutes Int      @map("duration_minutes")
+  bmhpCost        Decimal  @map("bmhp_cost") @db.Decimal(16, 2)
+  roomCost        Decimal  @map("room_cost") @db.Decimal(16, 2)
+  staffCost       Decimal  @map("staff_cost") @db.Decimal(16, 2)
+  revenue         Decimal  @db.Decimal(16, 2)
+  sourceFileId    String   @map("source_file_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  hospital   Hospital    @relation(fields: [hospitalId], references: [id])
+  period     Period      @relation(fields: [periodId], references: [id])
+  service    Service     @relation(fields: [serviceId], references: [id])
+  doctor     Doctor      @relation(fields: [doctorId], references: [id])
+  sourceFile UploadBatch @relation(fields: [sourceFileId], references: [id])
+
+  @@index([hospitalId, periodId])
+  @@index([sourceFileId])
+  // Hot path: queried by groupBy(serviceId) for the unit-cost engine AND
+  // groupBy(doctorId, serviceId) for the doctor-profitability engine and
+  // the comparison read API — neither sibling table needs this shape.
+  @@index([serviceId, periodId])
+  @@map("medical_activities")
+}
+
 // --- Calculation (docs/02_DOMAIN_MODEL.md §1, DATABASE_SCHEMA.md) ----------
 
 /// `completed_with_errors` (Sprint 6 sub-task 1, docs/09_PROFITABILITY_ENGINE.md
@@ -1065,14 +1146,15 @@ model AllocationRun {
   createdByUserId String              @map("created_by_user_id")
   createdAt       DateTime            @default(now()) @map("created_at")
 
-  hospital             Hospital              @relation(fields: [hospitalId], references: [id])
-  period               Period                @relation(fields: [periodId], references: [id])
-  createdBy            User                  @relation("AllocationRunCreatedBy", fields: [createdByUserId], references: [id])
-  supersedesRun        AllocationRun?        @relation("AllocationRunSupersedes", fields: [supersedesRunId], references: [id])
-  supersededBy         AllocationRun?        @relation("AllocationRunSupersedes")
-  allocatedCosts       AllocatedCost[]
-  profitabilityResults ProfitabilityResult[]
-  serviceUnitCosts     ServiceUnitCost[]
+  hospital                   Hospital                    @relation(fields: [hospitalId], references: [id])
+  period                     Period                      @relation(fields: [periodId], references: [id])
+  createdBy                  User                        @relation("AllocationRunCreatedBy", fields: [createdByUserId], references: [id])
+  supersedesRun              AllocationRun?              @relation("AllocationRunSupersedes", fields: [supersedesRunId], references: [id])
+  supersededBy               AllocationRun?              @relation("AllocationRunSupersedes")
+  allocatedCosts             AllocatedCost[]
+  profitabilityResults       ProfitabilityResult[]
+  serviceUnitCosts           ServiceUnitCost[]
+  doctorProfitabilityResults DoctorProfitabilityResult[]
 
   @@index([hospitalId, periodId])
   @@map("allocation_runs")
@@ -1143,11 +1225,12 @@ model ProfitabilityResult {
 /// split to engineering) — a sibling table, not extra columns on
 /// `ProfitabilityResult`, since that table's grain is profit-center-only.
 /// Written in the same `profitability.compute` job / same transaction as
-/// `ProfitabilityResult` (Sprint 6 sub-task 2). `serviceDirectCost` is
-/// always 0 for now — Sprint 6 sub-task 0 planning decision: `medical_activities`
-/// (needed for the documented bmhp/room/staff cost breakdown) is deferred to
-/// Sprint 8, where its `doctor_id` capture actually earns its keep.
-/// `currentTariff`/`targetMarginUsed` are point-in-time snapshots of the
+/// `ProfitabilityResult` (Sprint 6 sub-task 2). `serviceDirectCost` (Sprint 8)
+/// = SUM(medical_activities.bmhp_cost + room_cost + staff_cost) for that
+/// service+period; `serviceVolume` prefers medical_activities' own volume
+/// when present for that service, else falls back to revenue_entries.volume
+/// (docs/10_UNIT_COST_ENGINE.md §2) — see `ProfitabilityEngineService.
+/// computeServiceUnitCostRows()`. `currentTariff`/`targetMarginUsed` are point-in-time snapshots of the
 /// inputs used, not live references — a later tariff or target-margin
 /// change must not retroactively alter an already-computed run's figures.
 model ServiceUnitCost {
@@ -1172,6 +1255,41 @@ model ServiceUnitCost {
 
   @@index([allocationRunId])
   @@map("service_unit_costs")
+}
+
+/// Sprint 8 (docs/11_DOCTOR_ANALYTICS.md §2) — one row per (doctor, service)
+/// per allocation run, written in the SAME transaction as
+/// ProfitabilityResult/ServiceUnitCost (docs/09_PROFITABILITY_ENGINE.md §3:
+/// "the next stage of the same pipeline"), because `cost` apportions
+/// `ServiceUnitCost.serviceAllocatedCost` further down to the doctor by
+/// that doctor's volume share of the service (same revenue-weighted-style
+/// apportionment as docs/10_UNIT_COST_ENGINE.md §3, just one level deeper).
+/// No `hospitalId` — same EXISTS-join RLS pattern as ServiceUnitCost/
+/// ProfitabilityResult against their shared parent allocation_runs. A
+/// doctor+service pair with fewer than 5 cases this period still gets a
+/// row here (still useful for other reports); only the `/comparison` read
+/// API excludes it from cohort/percentile math (docs §3's minimum sample
+/// size).
+model DoctorProfitabilityResult {
+  id              String   @id @default(uuid())
+  allocationRunId String   @map("allocation_run_id")
+  doctorId        String   @map("doctor_id")
+  serviceId       String   @map("service_id")
+  revenue         Decimal  @db.Decimal(16, 2)
+  cost            Decimal  @db.Decimal(16, 2)
+  profit          Decimal  @db.Decimal(16, 2)
+  /// Percentage scale, null when revenue = 0 — same guard as ProfitabilityResult.margin.
+  margin          Decimal? @db.Decimal(9, 4)
+  avgDuration     Decimal  @map("avg_duration") @db.Decimal(9, 2)
+  avgBmhp         Decimal  @map("avg_bmhp") @db.Decimal(16, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  allocationRun AllocationRun @relation(fields: [allocationRunId], references: [id])
+  doctor        Doctor        @relation(fields: [doctorId], references: [id])
+  service       Service       @relation(fields: [serviceId], references: [id])
+
+  @@index([allocationRunId, serviceId])
+  @@map("doctor_profitability_results")
 }
 
 // --- Platform / Audit (docs/23_AUDIT_TRAIL.md, docs/02_DOMAIN_MODEL.md §1) -

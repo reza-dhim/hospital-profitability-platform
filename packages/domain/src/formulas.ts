@@ -99,3 +99,59 @@ export function variance(current: Numeric, prior: Numeric): VarianceResult {
   const percentage = priorDecimal.isZero() ? null : absolute.dividedBy(priorDecimal).times(100);
   return { absolute, percentage };
 }
+
+/**
+ * Linear-interpolation percentile (numpy/Excel default method) over a
+ * numeric distribution — docs/11_DOCTOR_ANALYTICS.md §3's cross-doctor
+ * unit-cost-equivalent distribution (median, P25, P75, P90). Returns
+ * `null` for an empty input — "no data" is distinct from "0", same
+ * null-guard philosophy as every other formula here. Throws for `p`
+ * outside `[0, 100]` — an invalid call, not a runtime data gap.
+ */
+export function percentile(values: Numeric[], p: number): Decimal | null {
+  if (values.length === 0) return null;
+  if (p < 0 || p > 100) {
+    throw new RangeError(`p must be in [0, 100]; received ${p}`);
+  }
+  const sorted = values.map(toDecimal).sort((a, b) => a.comparedTo(b));
+  if (sorted.length === 1) return sorted[0]!;
+  const rank = new Decimal(p).dividedBy(100).times(sorted.length - 1);
+  const lowerIndex = Math.floor(rank.toNumber());
+  const upperIndex = Math.ceil(rank.toNumber());
+  const lower = sorted[lowerIndex]!;
+  if (lowerIndex === upperIndex) return lower;
+  const upper = sorted[upperIndex]!;
+  const fraction = rank.minus(lowerIndex);
+  return lower.plus(upper.minus(lower).times(fraction));
+}
+
+export interface CohortDistribution {
+  median: Decimal;
+  p25: Decimal;
+  p75: Decimal;
+  p90: Decimal;
+  doctorCount: number;
+}
+
+/** docs/11_DOCTOR_ANALYTICS.md §3's exact set of cut points, computed once per cohort. Returns `null` for an empty cohort. */
+export function cohortDistribution(values: Numeric[]): CohortDistribution | null {
+  if (values.length === 0) return null;
+  return {
+    median: percentile(values, 50)!,
+    p25: percentile(values, 25)!,
+    p75: percentile(values, 75)!,
+    p90: percentile(values, 90)!,
+    doctorCount: values.length,
+  };
+}
+
+export type PercentileBand = "below_p25" | "p25_p75" | "p75_p90" | "above_p90";
+
+/** Which of docs/11_DOCTOR_ANALYTICS.md §3's four bands a value falls into, given a cohort's cut points. */
+export function percentileBand(value: Numeric, cohort: CohortDistribution): PercentileBand {
+  const v = toDecimal(value);
+  if (v.gt(cohort.p90)) return "above_p90";
+  if (v.gt(cohort.p75)) return "p75_p90";
+  if (v.gt(cohort.p25)) return "p25_p75";
+  return "below_p25";
+}
