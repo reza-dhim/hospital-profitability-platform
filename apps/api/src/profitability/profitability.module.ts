@@ -9,6 +9,6 @@ import { ProfitabilityQueryService } from "./profitability-query.service";
   imports: [TargetMarginModule, DoctorAnalyticsModule],
   controllers: [ProfitabilityController],
   providers: [ProfitabilityEngineService, ProfitabilityQueryService],
-  exports: [ProfitabilityEngineService],
+  exports: [ProfitabilityEngineService, ProfitabilityQueryService],
 })
 export class ProfitabilityModule {}

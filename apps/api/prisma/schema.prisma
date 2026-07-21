@@ -68,6 +68,7 @@ model Hospital {
   costEntries       CostEntry[]
   revenueEntries    RevenueEntry[]
   driverValues      DriverValue[]
+  reportExports     ReportExport[]
   medicalActivities MedicalActivity[]
   allocationRuns    AllocationRun[]
   targetMargins     TargetMargin[]
@@ -183,6 +184,7 @@ model User {
   uploadBatchesUploaded   UploadBatch[]      @relation("UploadBatchUploadedBy")
   allocationRunsCreated   AllocationRun[]    @relation("AllocationRunCreatedBy")
   targetMarginsSet        TargetMargin[]     @relation("TargetMarginSetBy")
+  reportExportsGenerated  ReportExport[]
 
   auditLogs AuditLog[]
 
@@ -790,6 +792,7 @@ model Period {
   medicalActivities MedicalActivity[]
   allocationRuns    AllocationRun[]
   targetMargins     TargetMargin[]
+  reportExports     ReportExport[]
 
   @@unique([hospitalId, label])
   @@index([hospitalId, status])
@@ -1323,4 +1326,39 @@ model AuditLog {
   @@index([userId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// --- Reporting (Sprint 10, docs/15_REPORTING.md) -----------------------
+
+enum ReportType {
+  executive_summary
+  profitability_detail
+  doctor_analytics
+
+  @@map("report_type")
+}
+
+/// docs/15_REPORTING.md §2: every generation is persisted, never
+/// regenerated in place — a later recalculation of the same period doesn't
+/// retroactively change a previously generated report. `report_schedules`
+/// (recurring generation + email delivery) is deferred — no SMTP/email
+/// infra exists yet.
+model ReportExport {
+  id                   String     @id @default(uuid())
+  hospitalId           String     @map("hospital_id")
+  reportType           ReportType @map("report_type")
+  generatedForPeriodId String     @map("generated_for_period_id")
+  fileUrl              String     @map("file_url")
+  /// Nullable for forward-compatibility with scheduled generation
+  /// (docs/02_DOMAIN_MODEL.md's `report_exports` note: "nullable if
+  /// scheduled") — always set today since only on-demand generation exists.
+  generatedByUserId String?  @map("generated_by_user_id")
+  generatedAt       DateTime @default(now()) @map("generated_at")
+
+  hospital      Hospital @relation(fields: [hospitalId], references: [id])
+  period        Period   @relation(fields: [generatedForPeriodId], references: [id])
+  generatedBy   User?    @relation(fields: [generatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([hospitalId, generatedForPeriodId, reportType], map: "report_exports_hospital_period_type_idx")
+  @@map("report_exports")
 }

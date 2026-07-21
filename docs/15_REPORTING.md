@@ -1,6 +1,6 @@
 # 15 — Reporting
 
-Status: Draft v1 — resolves the "Missing Reporting Requirement" gap in `ARCHITECT_AUDIT.md`. Endpoints: `API_SPEC.md` §Reports. Persistence: `report_exports`, `report_schedules` (`02_DOMAIN_MODEL.md`).
+Status: Sprint 10 — on-demand generation for all 3 MVP report types implemented (`ReportingModule`), resolving the "Missing Reporting Requirement" gap in `ARCHITECT_AUDIT.md`. Endpoints: `API_SPEC.md` §Reports, plus `GET /reports/exports` (history list, a reasonable addition given `report_exports` is a fully persisted, listable table — not in `API_SPEC.md`'s literal 3 routes). Persistence: `report_exports` (`02_DOMAIN_MODEL.md`) is implemented; `report_schedules` (recurring generation + email delivery, §3 below) is deferred — no SMTP/email provider exists yet. Executive Summary's AI narrative section (§1's table) is also deferred — depends on Sprint 9's real AI Engine (`12_AI_ENGINE.md`), which doesn't exist yet; unlike What-If Simulation, this one genuinely needs an LLM call, not just a recomputation.
 
 ## 1. Report Types (MVP)
 

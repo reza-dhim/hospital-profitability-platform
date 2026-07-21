@@ -1199,7 +1199,59 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Executive Summary PDF — KPI header, revenue/cost/margin trend, top/bottom 5 profit centers. */
         get: operations["ReportingController_executivePdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/profitability/excel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Profitability Detail Excel — per-profit-center rollup, per-service drill-down, raw data sheet. */
+        get: operations["ReportingController_profitabilityExcel"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/doctor-analytics/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Doctor Analytics PDF — per-service cohort comparison. Doctor-identified detail only included when the requester holds doctor_analytics.read_detail (docs/04_RBAC.md §5). */
+        get: operations["ReportingController_doctorAnalyticsPdf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List past report generations for this hospital (docs/15_REPORTING.md §2 — every generation is persisted). */
+        get: operations["ReportingController_listExports"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2415,6 +2467,19 @@ export interface components {
             profitCenterBaseline: components["schemas"]["WhatIfProfitCenterFiguresDto"];
             profitCenterHypothetical: components["schemas"]["WhatIfProfitCenterFiguresDto"];
             profitCenterDeltas: components["schemas"]["WhatIfProfitCenterDeltasDto"];
+        };
+        ReportExportResponseDto: {
+            id: string;
+            /** @enum {string} */
+            reportType: "executive_summary" | "profitability_detail" | "doctor_analytics";
+            generatedForPeriodId: string;
+            generatedByUserId: string | null;
+            /** Format: date-time */
+            generatedAt: string;
+        };
+        PaginatedReportExportResponseDto: {
+            meta: components["schemas"]["PaginationMetaDto"];
+            data: components["schemas"]["ReportExportResponseDto"][];
         };
         AuditLogResponseDto: {
             id: string;
@@ -5851,19 +5916,92 @@ export interface operations {
     };
     ReportingController_executivePdf: {
         parameters: {
-            query?: never;
+            query: {
+                periodId: string;
+                allocationRunId?: string;
+                /** @description Force a fresh generation even if an export already exists for this (reportType, period) pair. */
+                regenerate?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Implemented in Sprint 10 — docs/15_REPORTING.md */
-            501: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    ReportingController_profitabilityExcel: {
+        parameters: {
+            query: {
+                periodId: string;
+                allocationRunId?: string;
+                /** @description Force a fresh generation even if an export already exists for this (reportType, period) pair. */
+                regenerate?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ReportingController_doctorAnalyticsPdf: {
+        parameters: {
+            query: {
+                periodId: string;
+                allocationRunId?: string;
+                /** @description Force a fresh generation even if an export already exists for this (reportType, period) pair. */
+                regenerate?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ReportingController_listExports: {
+        parameters: {
+            query?: {
+                page?: number;
+                limit?: number;
+                /** @description Free-text search, matched against the entity's name/code. */
+                search?: string;
+                periodId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReportExportResponseDto"];
+                };
             };
         };
     };

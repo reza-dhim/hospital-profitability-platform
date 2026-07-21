@@ -8,6 +8,6 @@ import { DoctorProfitabilityEngineService } from "./doctor-profitability-engine.
   imports: [AuthModule],
   controllers: [DoctorAnalyticsController],
   providers: [DoctorProfitabilityEngineService, DoctorAnalyticsService],
-  exports: [DoctorProfitabilityEngineService],
+  exports: [DoctorProfitabilityEngineService, DoctorAnalyticsService],
 })
 export class DoctorAnalyticsModule {}
