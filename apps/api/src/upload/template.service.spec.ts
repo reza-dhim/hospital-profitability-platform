@@ -115,6 +115,52 @@ describe("TemplateService", () => {
     ]);
   });
 
+  it("includes an 'Instruksi' sheet with type-level notes and a column reference table", async () => {
+    const buffer = await service.generate("cost");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Instruksi")!;
+
+    expect(sheet).toBeDefined();
+    const allText = sheet
+      .getSheetValues()
+      .flat()
+      .filter((v): v is string => typeof v === "string")
+      .join(" ");
+    expect(allText).toContain(".xlsx");
+    expect(allText).toContain("cost_center_code");
+    expect(allText).toContain("Kode cost center tujuan biaya");
+  });
+
+  it("writes a styled example row on the Data sheet that a real upload row would overwrite, with a deliberately fake (non-existent) reference code", async () => {
+    const buffer = await service.generate("cost");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Data")!;
+
+    const exampleRow = sheet.getRow(3);
+    expect(exampleRow.getCell(1).value).toBe("CONTOH-PERIODE");
+    expect(exampleRow.getCell(2).value).toBe("CONTOH-CC");
+    expect(exampleRow.getCell(1).font?.italic).toBe(true);
+    // A 5th cell (beyond the 4 real "cost" columns) carries a human note —
+    // the parser only reads cells 1..N for a spec's column count, so this
+    // never gets mistaken for real data (apps/api/src/upload/parse.service.ts's extractRows()).
+    expect(String(exampleRow.getCell(5).value)).toContain("CONTOH");
+  });
+
+  it("bolds and shades the header row and freezes it (rows 1-2) so it stays visible while scrolling", async () => {
+    const buffer = await service.generate("cost");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as never);
+    const sheet = workbook.getWorksheet("Data")!;
+
+    expect(sheet.getRow(2).getCell(1).font?.bold).toBe(true);
+    expect(sheet.views?.[0]).toMatchObject({ state: "frozen", ySplit: 2 });
+  });
+
   it("throws NotFoundException when TEMPLATE_SPECS has no entry for a given type", async () => {
     // Every `UploadType` enum value now has a spec — this proves the
     // NotFoundException branch itself still works by bypassing the type
